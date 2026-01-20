@@ -1,0 +1,40 @@
+nam-documentation/
+├── README.md                     # Primary entry point (everyone reads this)
+├── LICENSE.md                    # Documentation license (e.g. CC BY-NC 4.0)
+
+├── OVERVIEW/
+│   ├── WHAT_IS_NAM.md            # Plain-language explanation
+│   ├── WHY_NAM_EXISTS.md         # Problem framing + market gap
+│   └── WHERE_NAM_FITS.md         # Positioning vs RAG, KG, vector DBs, etc.
+
+├── PHILOSOPHY/
+│   ├── DESIGN_PRINCIPLES.md      # Invariants, non-goals, tradeoffs
+│   ├── PRFAQ_EXCERPTS.md         # Curated, non-sensitive excerpts
+│   └── TERMINOLOGY.md            # Canonical definitions (address, affordance, etc.)
+
+├── ARCHITECTURE/
+│   ├── HIGH_LEVEL_SYSTEM.md      # Conceptual system (no code)
+│   ├── GEOMETRIC_RETRIEVAL.md    # Cubes, planes, lines, points
+│   ├── ADDRESSING_MODEL.md       # Determinism, axes, wildcards
+│   ├── INGESTION_MODEL.md        # Determinism, axes, wildcards
+│   └── QUERY_MODEL.md            # How questions become probes
+
+├── CAPABILITIES/
+│   ├── WHAT_NAM_CAN_DO.md        # Supported problem classes
+│   ├── WHAT_NAM_CANNOT_DO.md     # Explicit non-goals (very important)
+│   └── CURRENT_LIMITATIONS.md   # Honest POC constraints
+
+├── ROADMAP/
+│   ├── CURRENT_STATE.md          # Where the project is *today*
+│   ├── NEAR_TERM.md              # Next 3–6 months
+│   └── LONG_TERM.md              # Vision without commitments
+
+├── GOVERNANCE/
+│   ├── LICENSING_MODEL.md        # How source-available licensing works
+│   ├── CONTRIBUTIONS.md          # How collaborators engage (non-OSS)
+│   └── SECURITY_AND_TRUST.md     # Determinism, auditability, guarantees
+
+└── APPENDIX/
+    ├── FAQ.md                    # High-signal answers only
+    ├── GLOSSARY.md               # Expanded definitions
+    └── REFERENCES.md             # Papers, prior art, inspirations

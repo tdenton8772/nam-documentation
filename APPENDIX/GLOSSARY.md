@@ -1,0 +1,148 @@
+# Glossary
+
+This glossary is a **navigation aid**, not an authoritative definitions document.
+
+Canonical definitions for NAM concepts live in
+**PHILOSOPHY/TERMINOLOGY.md**.
+This file exists to help readers quickly orient themselves and find the
+correct place to learn more.
+
+---
+
+## Address
+
+A structured semantic location used by NAM to store and retrieve knowledge.
+Addresses are deterministic, composable, and geometric.
+
+→ See: **PHILOSOPHY/TERMINOLOGY.md — Address**
+
+---
+
+## Address Family
+
+A related set of addresses derived from a single record or concept.
+Address families allow NAM to answer more questions over time without
+re-encoding prior data.
+
+→ See: **PHILOSOPHY/TERMINOLOGY.md — Address Families**
+
+---
+
+## Affordance
+
+An inferred capability of a query that determines *how* NAM should interpret
+and explore knowledge (e.g., identity lookup, explanation, comparison).
+
+Affordances guide retrieval strategy but do not score or rank results.
+
+→ See: **PHILOSOPHY/TERMINOLOGY.md — Affordance**
+
+---
+
+## Axis (plural: Axes)
+
+A semantic dimension of an address (e.g., X, Y, Z) used to position records
+within NAM’s geometric space.
+
+Axes are populated deterministically by encoder heads.
+
+→ See: **PHILOSOPHY/TERMINOLOGY.md — Axes**
+
+---
+
+## Determinism
+
+The principle that identical inputs must always produce identical outputs
+(addresses, probes, retrieval paths).
+
+Determinism is a first-order requirement for trust, auditability, and deployment.
+
+→ See: **PHILOSOPHY/TERMINOLOGY.md — Determinism**
+
+---
+
+## Encoder Head
+
+A pluggable component responsible for extracting a specific semantic signal
+(entity, ontology, affordance, context) from text.
+
+Encoder heads may be trained offline but behave deterministically at runtime.
+
+→ See: **PHILOSOPHY/TERMINOLOGY.md — Encoder Heads**
+
+---
+
+## Geometry
+
+The conceptual model NAM uses for retrieval: points, lines, planes, and volumes
+within a semantic space.
+
+Retrieval is geometric navigation, not similarity scoring.
+
+→ See: **PHILOSOPHY/TERMINOLOGY.md — Geometry**
+
+---
+
+## Ontology
+
+A controlled semantic category used to group and reason about concepts
+(e.g., person, location, process).
+
+Ontologies define structure, not meaning.
+
+→ See: **PHILOSOPHY/TERMINOLOGY.md — Ontology**
+
+---
+
+## Probe
+
+The geometric representation of a query generated at query time.
+A probe defines *where* and *how* NAM should explore its stored space.
+
+→ See: **PHILOSOPHY/TERMINOLOGY.md — Probe**
+
+---
+
+## Record
+
+An ingested unit of information (text plus metadata) that is encoded into one
+or more addresses.
+
+Records are immutable once ingested.
+
+→ See: **PHILOSOPHY/TERMINOLOGY.md — Record**
+
+---
+
+## Wildcard
+
+A deliberate absence in an address axis used to widen retrieval.
+Wildcards are first-class geometric constructs, not errors or fallbacks.
+
+→ See: **PHILOSOPHY/TERMINOLOGY.md — Wildcards**
+
+---
+
+## Exploratory Mode
+
+A retrieval mode used when no specific affordance is detected.
+Exploratory retrieval favors coverage and semantic breadth over precision.
+
+→ See: **PHILOSOPHY/TERMINOLOGY.md — Exploratory Retrieval**
+
+---
+
+## Knowledge Accumulation
+
+The process by which NAM becomes more capable over time by accumulating
+address families—not by changing encoder behavior.
+
+→ See: **PHILOSOPHY/TERMINOLOGY.md — Learning vs Accumulation**
+
+---
+
+### Notes
+
+* This glossary intentionally avoids implementation detail.
+* If a term appears ambiguous or overloaded, defer to **TERMINOLOGY.md**.
+* New terms should be added here *only after* being defined canonically.

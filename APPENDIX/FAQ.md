@@ -1,0 +1,242 @@
+# Frequently Asked Questions (FAQ)
+
+This FAQ answers the questions we hear most often from engineers, architects, and operators encountering NAM for the first time.
+
+If you’re looking for marketing claims, this is not the right place.
+If you’re looking to understand what NAM *actually does*, this is.
+
+---
+
+## What problem is NAM solving?
+
+NAM addresses a specific gap:
+
+> How do you retrieve meaningful, explainable knowledge from large corpora **without collapsing meaning into probabilistic similarity**?
+
+NAM is built for environments where:
+- Determinism matters
+- Recall boundaries must be understood
+- Answers must be inspectable
+- Semantic drift is unacceptable
+
+It is not designed to replace LLMs, search engines, or databases — it complements them where those tools break down.
+
+---
+
+## Is NAM a vector database?
+
+No.
+
+NAM does not rely on nearest-neighbor similarity, distance metrics, or global embedding spaces.
+
+Retrieval in NAM is geometric and exact:
+- Queries generate probes
+- Probes intersect address space
+- Records match by structural alignment, not similarity score
+
+Vectors may exist *inside* encoder heads, but they are not the retrieval primitive.
+
+---
+
+## Is NAM a knowledge graph?
+
+Not in the traditional sense.
+
+NAM does not:
+- Require predefined edges
+- Store explicit triples
+- Traverse relationship graphs at query time
+
+Relationships in NAM emerge from **shared address geometry**, not graph traversal.
+
+You can derive graphs from NAM outputs — but NAM itself is not a graph engine.
+
+---
+
+## Is NAM a RAG system?
+
+No — but it can support RAG systems.
+
+NAM does not:
+- Rank chunks by similarity
+- Optimize for prompt stuffing
+- Assume an LLM is the consumer
+
+Instead, NAM focuses on **semantic retrieval correctness**.  
+If you feed those results into an LLM, you get a more reliable RAG pipeline — but NAM stands independently.
+
+---
+
+## Does NAM “understand” language?
+
+NAM does not claim human-like understanding.
+
+It performs:
+- Structured semantic interpretation
+- Ontology-aware encoding
+- Deterministic address assignment
+
+Understanding, in NAM, means *consistent semantic placement*, not generative reasoning.
+
+---
+
+## Does NAM learn in real time?
+
+Yes — but in a constrained and intentional way.
+
+NAM learns by:
+- Accumulating new addressed records
+- Expanding the family of known addresses
+- Increasing coverage within existing semantic geometry
+
+NAM does **not**:
+- Change its encoder logic at runtime
+- Invent new strategies
+- Mutate behavior unpredictably
+
+It gains **knowledge**, not **new rules**.
+
+---
+
+## What happens when NAM cannot answer a question?
+
+NAM fails *structurally*, not creatively.
+
+That means:
+- Fewer results
+- Wider probes
+- Explicit uncertainty
+
+NAM does not hallucinate completeness or correctness.
+
+If geometry does not intersect, the system makes that visible.
+
+---
+
+## How is this different from “just better embeddings”?
+
+Embeddings collapse meaning into distance.
+NAM preserves meaning as structure.
+
+Distance-based systems must guess relevance.
+NAM tests alignment.
+
+This difference matters when:
+- Exact recall matters
+- False positives are dangerous
+- Explanations are required
+- Systems must behave identically across environments
+
+---
+
+## Can NAM be trained on my domain?
+
+Yes.
+
+Encoder heads, ontologies, and artifacts are designed to be:
+- Domain-specific
+- Separately trained
+- Versioned
+- Auditable
+
+This is a core design goal, not an afterthought.
+
+---
+
+## Does NAM require an LLM?
+
+No.
+
+LLMs can be used:
+- During training
+- For labeling
+- As downstream consumers
+
+But NAM does not depend on them at runtime.
+
+---
+
+## Is NAM deterministic?
+
+Yes — by design.
+
+Given the same inputs and configuration, NAM will:
+- Produce the same addresses
+- Probe the same geometry
+- Return the same results
+
+This is non-negotiable.
+
+---
+
+## Can NAM scale?
+
+NAM is designed to scale along familiar axes:
+- Partitioning
+- Sharding
+- Storage backends
+- Parallel ingestion and query
+
+Scalability is architectural, not experimental.
+
+---
+
+## What kinds of problems is NAM *not* good at?
+
+NAM is not a good fit for:
+- Open-ended text generation
+- Creative writing
+- Approximate semantic similarity search
+- Replacing human judgment
+
+These are intentional non-goals.
+
+---
+
+## Is NAM production-ready today?
+
+NAM is an active system under development.
+
+It is suitable for:
+- Prototypes
+- Controlled pilots
+- Domain-specific evaluations
+
+The public roadmap documents how production hardening will proceed.
+
+---
+
+## Why does NAM look “different” from other AI systems?
+
+Because it was designed backward from failure cases.
+
+NAM exists because:
+- Similarity is not meaning
+- Recall without explanation is dangerous
+- Nondeterminism breaks trust
+- Black boxes do not belong everywhere
+
+The system reflects those beliefs.
+
+---
+
+## Where should I start next?
+
+If you want:
+- Conceptual clarity → Architecture docs
+- Practical constraints → Capabilities
+- Future direction → Roadmap
+- Definitions → Glossary
+
+This documentation is designed to be read non-linearly.
+```
+
+---
+
+### Why this FAQ works
+
+* Answers **real objections**, not strawmen
+* Reinforces philosophy without repeating it
+* Positions NAM confidently without hype
+* Makes limits explicit (this builds trust)
+* Is usable by GTM *without* being salesy

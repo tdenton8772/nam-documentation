@@ -197,3 +197,5 @@ Its design choices favor:
 * contracts over heuristics
 
 These excerpts exist to make those choices explicit.
+
+→ See also: [What Is NAM](../OVERVIEW/WHAT_IS_NAM.md) | [What NAM Can Do](../CAPABILITIES/WHAT_NAM_CAN_DO.md) | [Design Principles](DESIGN_PRINCIPLES.md)

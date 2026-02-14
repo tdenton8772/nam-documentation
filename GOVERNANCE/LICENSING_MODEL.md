@@ -128,17 +128,6 @@ If you are interested in:
 Start with a conversation.
 
 Understanding comes before access.
-```
 
----
-
-### Sanity check
-
-This doc:
-
-* ✔️ Clearly states **not OSS**
-* ✔️ Explains source-available *without* ambiguity
-* ✔️ Avoids Couchbase / implementation mentions
-* ✔️ Leaves room for open core later
-* ✔️ Sets expectations for evaluators, partners, and future GTM
+→ See also: [Contributions](CONTRIBUTIONS.md) | [License](../LICENSE.md)
 

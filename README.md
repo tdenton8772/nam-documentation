@@ -115,16 +115,16 @@ These principles are expanded in `PHILOSOPHY/DESIGN_PRINCIPLES.md`.
 
 ## Current State of the Project
 
-NAM is **actively under development**.
+NAM is in **active production-pilot phase** with proven horizontal scaling.
 
-* The core addressing and query model is implemented and exercised against real corpora.
-* The system currently operates in **exploratory mode** by default.
-* Affordance-guided execution policies are being trained offline.
-* Entity resolution and refinement are ongoing areas of improvement.
+* The core pipeline — rule-based NLP, entity-anchored bundling, distributed entity resolution — is implemented and exercised against real corpora
+* The system scales horizontally across multiple ingest, encoding, and storage replicas
+* Container-orchestrated deployment is operational
+* Behavior is deterministic, observable, and reproducible
 
 This is **not** a finished product, and this repo is intentionally transparent about current limitations.
 
-See `ROADMAP/CURRENT_STATE.md` for details.
+→ See: [Current State](ROADMAP/CURRENT_STATE.md) | [Current Limitations](CAPABILITIES/CURRENT_LIMITATIONS.md)
 
 ---
 

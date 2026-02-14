@@ -68,6 +68,8 @@ Examples:
 * Affordance head identifies what kind of action or intent is implied
 * Context head supplies environmental or situational signals
 
+Entity resolution at query time is type-scoped: a person lookup for "Einstein" only searches within person-type entities, preventing cross-type semantic bleed. Verbs are treated as first-class entities — "study" resolves through the same entity store as "Einstein," with synonym folding to match canonical forms established at ingest.
+
 **Critical rule:**
 Query encoders must obey the same axis definitions and vocabularies as ingest.
 
@@ -264,3 +266,5 @@ This separation is what makes NAM composable.
 
 A NAM query is not a search.
 It is a **geometric exploration of semantic space**.
+
+→ See also: [Ingestion Model](INGESTION_MODEL.md) | [Geometric Retrieval](GEOMETRIC_RETREIVAL.md) | [High-Level Systems](HIGH_LEVEL_SYSTEMS.md) | [Terminology](../PHILOSOPHY/TERMINOLOGY.md)

@@ -191,3 +191,5 @@ This doc:
 * Appeals to security, infra, and platform leaders
 * Sets expectations clearly without fear-mongering
 
+→ See also: [Design Principles](../PHILOSOPHY/DESIGN_PRINCIPLES.md) | [Contributions](CONTRIBUTIONS.md)
+

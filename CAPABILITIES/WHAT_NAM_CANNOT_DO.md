@@ -204,4 +204,6 @@ NAM exists to do one thing well:
 > **Provide deterministic, inspectable access to semantic knowledge through geometry.**
 
 If a problem fits that shape, NAM excels.
-If it doesn’t, NAM will resist — and should.
+If it doesn't, NAM will resist — and should.
+
+→ See also: [What NAM Can Do](WHAT_NAM_CAN_DO.md) | [Design Principles](../PHILOSOPHY/DESIGN_PRINCIPLES.md) | [Where NAM Fits](../OVERVIEW/WHERE_NAM_FITS.md)

@@ -146,3 +146,5 @@ address families—not by changing encoder behavior.
 * This glossary intentionally avoids implementation detail.
 * If a term appears ambiguous or overloaded, defer to **TERMINOLOGY.md**.
 * New terms should be added here *only after* being defined canonically.
+
+→ See also: [Terminology](../PHILOSOPHY/TERMINOLOGY.md) (canonical definitions)

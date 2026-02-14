@@ -194,3 +194,5 @@ This roadmap is intentionally **not**:
 It is a statement of **direction**, grounded in the belief that:
 
 > Meaning, once structured, becomes durable infrastructure.
+
+→ See also: [Current State](CURRENT_STATE.md) | [Near-Term Roadmap](NEAR_TERM.md) | [Design Principles](../PHILOSOPHY/DESIGN_PRINCIPLES.md)

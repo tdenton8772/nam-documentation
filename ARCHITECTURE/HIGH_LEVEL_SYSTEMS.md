@@ -48,7 +48,7 @@ Input interfaces are how data enters NAM.
 
 Examples:
 
-* Streaming events
+* CDC (change data capture) streams
 * Batch records
 * Documents
 * Questions or prompts
@@ -115,12 +115,15 @@ The address builder composes encoder outputs into **addresses**.
 It:
 
 * Combines ontology, entity anchors, and axis coordinates
+* Scopes address construction to entities — each semantic component is associated only with the entities it actually modifies (entity-anchored bundling)
 * Applies namespace and partition rules
 * Produces one or more deterministic addresses per record
 
 Key idea:
 
 > Address construction is the *only* place where semantic meaning becomes spatial structure.
+
+Entity-anchored bundling ensures that addresses reflect the linguistic structure of the input, not a combinatorial explosion of all possible component combinations. This bounds address count per record to what the text actually expresses.
 
 Once an address is built, it is immutable.
 
@@ -129,6 +132,8 @@ The address builder is:
 * Stateless
 * Deterministic
 * Shared by ingest and query paths
+
+→ See: [Addressing Model](ADDRESSING_MODEL.md) | [Ingestion Model](INGESTION_MODEL.md)
 
 ---
 
@@ -282,4 +287,6 @@ This separation of concerns ensures that:
 * Systems can evolve without semantic drift
 
 NAM is designed to be **operationally boring** — and semantically powerful.
+
+→ See also: [Geometric Retrieval](GEOMETRIC_RETREIVAL.md) | [Ingestion Model](INGESTION_MODEL.md) | [Query Model](QUERY_MODEL.md) | [Design Principles](../PHILOSOPHY/DESIGN_PRINCIPLES.md)
 

@@ -153,3 +153,5 @@ Start with a conversation.
 
 Alignment comes before contribution.
 
+→ See also: [Licensing Model](LICENSING_MODEL.md) | [Design Principles](../PHILOSOPHY/DESIGN_PRINCIPLES.md) | [Security and Trust](SECURITY_AND_TRUST.md)
+

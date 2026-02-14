@@ -309,3 +309,5 @@ This document exists so that:
 * expectations stay realistic
 
 If a word is overloaded — **stop and define it**.
+
+→ See also: [Design Principles](DESIGN_PRINCIPLES.md) | [Addressing Model](../ARCHITECTURE/ADDRESSING_MODEL.md) | [Geometric Retrieval](../ARCHITECTURE/GEOMETRIC_RETREIVAL.md) | [Glossary](../APPENDIX/GLOSSARY.md)

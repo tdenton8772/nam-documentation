@@ -280,3 +280,5 @@ It is a signal that the addressing contract is broken.
 If this model is respected, geometric retrieval works.
 
 If it is violated, NAM fails fast — and visibly.
+
+→ See also: [Geometric Retrieval](GEOMETRIC_RETREIVAL.md) | [Ingestion Model](INGESTION_MODEL.md) | [Query Model](QUERY_MODEL.md) | [Terminology](../PHILOSOPHY/TERMINOLOGY.md)

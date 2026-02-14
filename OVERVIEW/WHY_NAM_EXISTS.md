@@ -218,3 +218,5 @@ It is especially valuable when:
 ## In One Line
 
 **NAM exists because similarity-based retrieval cannot support understanding, and understanding is now a prerequisite for trustworthy AI.**
+
+→ See also: [What Is NAM](WHAT_IS_NAM.md) | [Design Principles](../PHILOSOPHY/DESIGN_PRINCIPLES.md) | [Where NAM Fits](WHERE_NAM_FITS.md)

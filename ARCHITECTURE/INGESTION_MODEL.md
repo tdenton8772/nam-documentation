@@ -78,6 +78,22 @@ There is no concept of “primary” or “secondary” meaning at ingest.
 
 ---
 
+## Entity-Anchored Address Construction
+
+Address construction is entity-anchored. Rather than crossing every semantic component with every other, the system uses dependency parsing to determine which components *actually belong to* which entities.
+
+This means:
+
+* Each entity in the text gets its own bundle of associated components
+* Attributes, actions, and context are scoped to the entities they modify
+* The address count per record is bounded by the structure of the text, not by combinatorial explosion
+
+Entity-anchored bundling preserves linguistic structure. The system knows that "angry" modifies "technician," not "pump" — a syntactic fact extracted deterministically from the parse tree.
+
+→ See: [Addressing Model](ADDRESSING_MODEL.md)
+
+---
+
 ## Address Emission and Multiplicity
 
 A single record may produce many addresses.
@@ -86,7 +102,7 @@ This is expected.
 
 For example:
 
-* A biographical paragraph may emit multiple entity addresses
+* A biographical paragraph may emit multiple entity-scoped address bundles
 * A procedural description may emit several ontology paths
 * A vague statement may emit only coarse or partially populated addresses
 
@@ -126,6 +142,20 @@ This is essential for:
 
 ---
 
+## Ingest-Time Learning
+
+NAM's ingest pipeline is read-only with respect to navigation rules, but it does learn continuously in a constrained way:
+
+* New entities are registered, and surface forms are mapped to canonical entries
+* Unknown vocabulary (verbs, adjectives) is auto-classified based on context
+* Curated seed vocabulary takes priority over discovered terms
+
+This learning **does not affect query behavior retroactively**. It only enriches the vocabulary available for future entity resolution and address construction.
+
+→ See: [Design Principles — Learning](../PHILOSOPHY/DESIGN_PRINCIPLES.md#4-field-based-training-not-runtime-learning)
+
+---
+
 ## Determinism as a Contract
 
 Given the same input and the same encoder artifacts:
@@ -137,7 +167,7 @@ Given the same input and the same encoder artifacts:
 
 There is no randomness.
 There are no thresholds that drift.
-There is no learning during ingest.
+There is no mutation to navigation rules during ingest.
 
 This guarantees:
 
@@ -231,3 +261,5 @@ In NAM:
 * Query can only retrieve what ingest made possible
 
 Everything else follows from this.
+
+→ See also: [High-Level Systems](HIGH_LEVEL_SYSTEMS.md) | [Query Model](QUERY_MODEL.md) | [Addressing Model](ADDRESSING_MODEL.md) | [Geometric Retrieval](GEOMETRIC_RETREIVAL.md)

@@ -239,4 +239,6 @@ NAM narrows the space.
 Retrieval pulls the facts.
 RAG handles language.
 
-Each does what it’s good at.
+Each does what it's good at.
+
+→ See also: [What Is NAM](WHAT_IS_NAM.md) | [What NAM Can Do](../CAPABILITIES/WHAT_NAM_CAN_DO.md) | [What NAM Cannot Do](../CAPABILITIES/WHAT_NAM_CANNOT_DO.md)

@@ -43,21 +43,22 @@ This improves trust, but can feel cautious during early pilots.
 
 ---
 
-## 3. Entity Resolution Is Still Evolving
+## 3. Entity Resolution Is Type-Scoped but Still Improving
 
-Entity detection and normalization currently:
+Entity resolution is now type-scoped and distributed:
 
-* rely on deterministic normalization rules
-* do not perform deep disambiguation
-* do not resolve cross-document coreference automatically
+* every entity has a type derived from NER analysis
+* resolution only searches within the declared type
+* surface forms are matched to canonical entries with approximate matching and structural guards
+* the entity store is shared across all replicas with deterministic resolution order
 
-This means:
+Current constraints:
 
-* multiple surface forms may map to separate entities
-* entity identity improves with cleaner input data
-* advanced entity linking is not yet automatic
+* deep cross-document coreference is not yet automatic
+* entity identity improves with cleaner input data and broader surface form coverage
+* type scoping prevents semantic bleed but relies on accurate NER classification
 
-This is an active area of refinement, not a solved problem.
+→ See: [Current State — Entity Resolution](../ROADMAP/CURRENT_STATE.md#type-scoped-entity-resolution)
 
 ---
 
@@ -117,21 +118,23 @@ This makes evaluation more rigorous — but also more demanding.
 
 ---
 
-## 7. Operational Maturity Is Early
+## 7. Operational Maturity Is Progressing
 
-Current operational constraints include:
+Container-orchestrated deployment is operational (Kubernetes manifests, Docker Compose), and horizontal scaling has been validated. Current operational constraints include:
 
-* limited deployment automation
-* basic observability
+* limited production monitoring and alerting
 * manual artifact promotion
+* no turnkey multi-tenant isolation
 
 NAM is stable for:
 
 * development environments
 * controlled pilots
-* internal systems
+* internal and partner deployments
 
 It is not yet packaged as a fully managed platform.
+
+→ See: [Current State — Scaling](../ROADMAP/CURRENT_STATE.md#scaling--deployment)
 
 ---
 
@@ -159,6 +162,8 @@ Despite these limitations, today’s NAM implementation already supports:
 * meaningful pilots in well-scoped domains
 
 These are real, working capabilities — not prototypes.
+
+→ See: [Current State](../ROADMAP/CURRENT_STATE.md) for detailed subsystem status
 
 ---
 

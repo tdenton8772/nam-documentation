@@ -121,3 +121,5 @@ as first-class primitives in knowledge systems.
 
 The references above represent starting points — not destinations.
 
+→ See also: [Design Principles](../PHILOSOPHY/DESIGN_PRINCIPLES.md) | [What Is NAM](../OVERVIEW/WHAT_IS_NAM.md)
+

@@ -241,3 +241,5 @@ It is built to survive:
 * long time horizons
 
 These principles exist to ensure that the system remains understandable **long after its creators are no longer in the room**.
+
+→ See also: [High-Level Systems](../ARCHITECTURE/HIGH_LEVEL_SYSTEMS.md) | [Terminology](TERMINOLOGY.md) | [Security and Trust](../GOVERNANCE/SECURITY_AND_TRUST.md)

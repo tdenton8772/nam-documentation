@@ -171,13 +171,15 @@ This is non-negotiable.
 
 ## Can NAM scale?
 
-NAM is designed to scale along familiar axes:
-- Partitioning
-- Sharding
-- Storage backends
-- Parallel ingestion and query
+NAM scales horizontally along familiar axes:
+- Partition-based distribution
+- Parallel ingestion replicas with CAS-based coordination
+- Independent encoding, storage, and NLP services
+- Sidecar architecture for pipeline overlap
 
-Scalability is architectural, not experimental.
+Horizontal scaling has been validated with multiple ingest, encoding, and storage replicas coordinating against a single data service.
+
+→ See: [Current State — Scaling](../ROADMAP/CURRENT_STATE.md#scaling--deployment)
 
 ---
 
@@ -195,14 +197,18 @@ These are intentional non-goals.
 
 ## Is NAM production-ready today?
 
-NAM is an active system under development.
+NAM is an active system in production-pilot phase with proven horizontal scaling.
 
 It is suitable for:
-- Prototypes
-- Controlled pilots
+- Controlled pilots and internal deployments
 - Domain-specific evaluations
+- Partner integrations with hands-on support
 
-The public roadmap documents how production hardening will proceed.
+Container-orchestrated deployment is operational, horizontal scaling has been validated, and the core pipeline (rule-based NLP, entity-anchored bundling, distributed entity resolution) is exercised against real corpora.
+
+It is not yet a fully managed platform.
+
+→ See: [Current State](../ROADMAP/CURRENT_STATE.md) | [Current Limitations](../CAPABILITIES/CURRENT_LIMITATIONS.md)
 
 ---
 
@@ -223,20 +229,12 @@ The system reflects those beliefs.
 ## Where should I start next?
 
 If you want:
-- Conceptual clarity → Architecture docs
-- Practical constraints → Capabilities
-- Future direction → Roadmap
-- Definitions → Glossary
+- Conceptual clarity → [Architecture](../ARCHITECTURE/HIGH_LEVEL_SYSTEMS.md)
+- Practical constraints → [Capabilities](../CAPABILITIES/WHAT_NAM_CAN_DO.md) | [Limitations](../CAPABILITIES/CURRENT_LIMITATIONS.md)
+- Current status → [Current State](../ROADMAP/CURRENT_STATE.md)
+- Future direction → [Near-Term](../ROADMAP/NEAR_TERM.md) | [Long-Term](../ROADMAP/LONG_TERM.md)
+- Definitions → [Terminology](../PHILOSOPHY/TERMINOLOGY.md) | [Glossary](GLOSSARY.md)
 
 This documentation is designed to be read non-linearly.
-```
 
----
-
-### Why this FAQ works
-
-* Answers **real objections**, not strawmen
-* Reinforces philosophy without repeating it
-* Positions NAM confidently without hype
-* Makes limits explicit (this builds trust)
-* Is usable by GTM *without* being salesy
+→ See also: [What Is NAM](../OVERVIEW/WHAT_IS_NAM.md) | [Terminology](../PHILOSOPHY/TERMINOLOGY.md) | [Current State](../ROADMAP/CURRENT_STATE.md)

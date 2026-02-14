@@ -16,27 +16,27 @@ It is about **turning what already exists into something people can reliably run
 
 ## 1. Deployability & Operational Readiness
 
-**Goal:** Make NAM easy to stand up, reset, and reason about in controlled environments.
+**Status:** Partially achieved. Container orchestration (Kubernetes, Docker Compose), repeatable reset workflows, and sidecar architecture are operational. Continuing to harden.
 
-Planned work includes:
+**Remaining work includes:**
 
-* **Clear deployment modes**
+* **Production observability**
 
-  * Local developer setup
-  * Single-node pilot deployments
-  * Repeatable “clean slate” environments for evaluation
+  * Structured logging, metrics export, health endpoints
+  * Alerting on lease failures, partition lag, and entity store drift
 * **Configuration hardening**
 
   * Explicit separation of runtime config vs training artifacts
   * Versioned artifacts with compatibility guarantees
-* **Operational boundaries**
+* **Deployment documentation**
 
-  * Defined restart behavior
-  * Clear failure modes
-  * Deterministic recovery semantics
+  * Runbooks for common operational scenarios
+  * Capacity planning guidance
 
 **Outcome:**
-Teams can deploy NAM without deep internal knowledge, understand what state exists on disk, and confidently reset or reproduce behavior.
+Teams can deploy, monitor, and operate NAM without deep internal knowledge.
+
+→ See: [Current State — Scaling](CURRENT_STATE.md#scaling--deployment)
 
 ---
 
@@ -69,14 +69,15 @@ NAM can be evaluated meaningfully on real customer data, not just synthetic or d
 
 ## 3. Test Coverage & Deterministic Validation
 
-**Goal:** Prove that NAM behaves predictably across ingestion, addressing, and query execution.
+**Status:** Foundational coverage in place. Deterministic test harnesses cover the rule-based NLP pipeline, encoder head compatibility, and end-to-end ingestion. Continuing to expand.
 
-Planned improvements include:
+**Remaining work includes:**
 
-* **Expanded end-to-end test suites**
+* **Scenario-driven integration tests**
 
-  * Ingestion → addressing → storage → query
+  * Full ingestion → addressing → storage → query round-trips
   * Explicit active vs inactive record expectations
+  * Cross-replica consistency validation
 * **Artifact validation tests**
 
   * Ensuring affordance, role, and ontology mappings are complete and internally consistent
@@ -86,7 +87,7 @@ Planned improvements include:
   * Locking execution order, probe behavior, and fallback semantics
 
 **Outcome:**
-NAM’s behavior becomes *provable*, not anecdotal.
+NAM's behavior becomes *provable*, not anecdotal.
 Changes either preserve determinism or fail loudly.
 
 ---
@@ -107,8 +108,9 @@ Near-term work includes:
   * Improving consistency across domains
 * **Entity handling improvements**
 
-  * More stable normalization
+  * Broader surface form coverage and cross-document coreference
   * Reduced noise from weak or spurious entity matches
+  * Type-scoped resolution is operational; depth and coverage continue to improve
 
 **Outcome:**
 Queries feel more robust while remaining explainable and deterministic.
@@ -154,4 +156,6 @@ The short-term roadmap is about **earning trust**:
 * Trust that domain adaptation is deliberate and controlled
 
 Once those foundations are solid, expanding capability becomes much easier — and much safer.
+
+→ See also: [Current State](CURRENT_STATE.md) | [Current Limitations](../CAPABILITIES/CURRENT_LIMITATIONS.md) | [Long-Term Direction](LONG_TERM.md)
 

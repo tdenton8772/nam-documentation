@@ -29,7 +29,7 @@ Both paths rely on the **same semantic primitives**.
 
 ## Core Components (Conceptual)
 
-NAM consists of six major conceptual components:
+NAM consists of nine major conceptual components:
 
 1. **Input Interfaces**
 2. **Encoder Heads**
@@ -37,6 +37,9 @@ NAM consists of six major conceptual components:
 4. **Storage Layer**
 5. **Query Planner**
 6. **Execution Engine**
+7. **Access Control Layer**
+8. **Lifecycle Manager**
+9. **Entity Cache**
 
 Each component has a single responsibility and is **independently evolvable**.
 
@@ -235,6 +238,88 @@ Runtime behavior never mutates stored state.
 
 ---
 
+## 7. Access Control Layer
+
+The access control layer mediates all external access to NAM.
+
+It:
+
+* Authenticates clients before allowing access to any internal service
+* Validates signed tokens on every request
+* Enforces role-based access (e.g. admin vs user)
+* Rate-limits sensitive operations
+* Produces structured audit logs for every access
+
+### Key architectural properties
+
+The access control layer is:
+
+* **Mandatory at external boundaries** — no unauthenticated path exists from outside the cluster to internal services
+* **Optional at internal boundaries** — services within the cluster trust network isolation
+* **Stateless per request** — authentication decisions are made from the token alone, no session state is maintained
+* **Independent of the semantic pipeline** — authentication does not influence addressing, encoding, or retrieval
+
+The access control layer can be deployed as:
+
+* Middleware within the query service
+* A standalone proxy at the network edge
+* Both, for defense in depth
+
+> See: [Security and Trust](../GOVERNANCE/SECURITY_AND_TRUST.md)
+
+---
+
+## 8. Lifecycle Manager
+
+The lifecycle manager handles cluster-level operations that must happen before — and during — normal system operation.
+
+It:
+
+* Waits for the data layer to become available
+* Coordinates node membership and data distribution
+* Verifies that expected storage structures exist
+* Creates initial administrative credentials
+* Signals readiness to downstream components
+* Monitors cluster health on a recurring basis
+* Re-joins dropped nodes automatically
+
+### Key architectural properties
+
+The lifecycle manager is:
+
+* **A single instance** — only one runs per cluster (no leader election needed)
+* **Idempotent** — repeated execution of any lifecycle action produces the same result
+* **Gating** — ingest and query services do not start until the lifecycle manager confirms readiness
+* **Separate from the semantic pipeline** — lifecycle management does not process records, build addresses, or serve queries
+
+The lifecycle manager exists because distributed systems require explicit coordination during bootstrap and recovery. Without it, services start against uninitialized storage, miss configuration, or race during node joins.
+
+---
+
+## 9. Entity Cache
+
+The entity cache provides **node-level shared memory** for entity resolution.
+
+It:
+
+* Maintains a local copy of entity surface form mappings
+* Serves lookups in microseconds via memory-mapped reads
+* Is written by a dedicated per-node process that follows the entity store's change stream
+* Is shared across all entity resolution workers on a node (read-only)
+
+### Key architectural properties
+
+The entity cache is:
+
+* **Per-node, not per-process** — a single writer serves all consumers on the same node
+* **Eventually consistent** — follows the authoritative store's change stream, not a snapshot
+* **Read-only from consumers** — workers never write to the cache directly
+* **Disposable** — if corrupted or stale, the cache rebuilds automatically from the change stream
+
+The entity cache exists because entity resolution is the most I/O-intensive operation in the encoding pipeline. Without node-level caching, every entity lookup crosses the network to the data service. The cache converts network I/O into memory reads.
+
+---
+
 ## Symmetry Between Ingest and Query
 
 A core architectural principle of NAM is **symmetry**:
@@ -246,6 +331,8 @@ A core architectural principle of NAM is **symmetry**:
 | Storage persists geometry       | Execution navigates geometry  |
 
 This symmetry enables determinism, explainability, and rebuildability.
+
+The access control layer, lifecycle manager, and entity cache are **cross-cutting** — they serve both paths and operate independently of semantic logic.
 
 ---
 
@@ -272,6 +359,8 @@ NAM provides the following guarantees by design:
 * Swappable storage backends
 * Offline semantic training
 * Online-only navigation
+* Authenticated access at every external boundary
+* Automated lifecycle management and readiness gating
 * Predictable deployment behavior
 
 These guarantees are more important than individual optimizations.

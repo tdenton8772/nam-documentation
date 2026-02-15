@@ -197,22 +197,46 @@ These are intentional non-goals.
 
 ## Is NAM production-ready today?
 
-NAM is an active system in production-pilot phase with proven horizontal scaling.
+NAM is an active system in production-pilot phase with proven horizontal scaling and operational security.
 
 It is suitable for:
 - Controlled pilots and internal deployments
 - Domain-specific evaluations
 - Partner integrations with hands-on support
 
-Container-orchestrated deployment is operational, horizontal scaling has been validated, and the core pipeline (rule-based NLP, entity-anchored bundling, distributed entity resolution) is exercised against real corpora.
+Packaged deployment, automated lifecycle management, authenticated access, network isolation, and transport security are operational. The core pipeline (rule-based NLP, entity-anchored bundling, distributed entity resolution) is exercised against real corpora.
 
 It is not yet a fully managed platform.
 
-→ See: [Current State](../ROADMAP/CURRENT_STATE.md) | [Current Limitations](../CAPABILITIES/CURRENT_LIMITATIONS.md)
+> See: [Current State](../ROADMAP/CURRENT_STATE.md) | [Current Limitations](../CAPABILITIES/CURRENT_LIMITATIONS.md)
 
 ---
 
-## Why does NAM look “different” from other AI systems?
+## How does NAM handle security?
+
+Security in NAM is structural, not bolted on.
+
+At the **design level**:
+- Determinism eliminates an entire class of nondeterministic exploits
+- Constrained learning prevents prompt-based or query-time manipulation
+- Derived state is rebuildable, eliminating long-lived hidden corruption
+
+At the **operational level**:
+- All external access is authenticated with signed, time-limited tokens
+- Role-based access control separates administrative and user operations
+- Network isolation segments internal components from external traffic
+- Transport encryption protects data in transit
+- Encryption at rest is available for persistent storage
+- Structured audit logs trace every authenticated access
+- Automated lifecycle management prevents operating on an unhealthy or misconfigured cluster
+
+NAM does not rely on prompt hardening, heuristic filters, or security through obscurity.
+
+> See: [Security and Trust](../GOVERNANCE/SECURITY_AND_TRUST.md)
+
+---
+
+## Why does NAM look "different" from other AI systems?
 
 Because it was designed backward from failure cases.
 

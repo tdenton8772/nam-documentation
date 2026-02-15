@@ -88,6 +88,13 @@ This documentation is organized for different audiences:
   * `ADDRESSING_MODEL.md`
   * `QUERY_MODEL.md`
 
+* **Security and infrastructure reviewers**
+  Focus on:
+
+  * `GOVERNANCE/SECURITY_AND_TRUST.md`
+  * `ARCHITECTURE/HIGH_LEVEL_SYSTEMS.md`
+  * `PHILOSOPHY/DESIGN_PRINCIPLES.md`
+
 * **Potential collaborators**
   Review:
 
@@ -115,16 +122,18 @@ These principles are expanded in `PHILOSOPHY/DESIGN_PRINCIPLES.md`.
 
 ## Current State of the Project
 
-NAM is in **active production-pilot phase** with proven horizontal scaling.
+NAM is in **active production-pilot phase** with proven horizontal scaling and operational security.
 
-* The core pipeline — rule-based NLP, entity-anchored bundling, distributed entity resolution — is implemented and exercised against real corpora
+* The core pipeline -- rule-based NLP, entity-anchored bundling, distributed entity resolution -- is implemented and exercised against real corpora
 * The system scales horizontally across multiple ingest, encoding, and storage replicas
-* Container-orchestrated deployment is operational
+* Authentication, network isolation, transport security, and encryption at rest are operational
+* Automated lifecycle management handles cluster bootstrap, health monitoring, and readiness gating
+* Packaged deployment is repeatable via templated manifests
 * Behavior is deterministic, observable, and reproducible
 
 This is **not** a finished product, and this repo is intentionally transparent about current limitations.
 
-→ See: [Current State](ROADMAP/CURRENT_STATE.md) | [Current Limitations](CAPABILITIES/CURRENT_LIMITATIONS.md)
+> See: [Current State](ROADMAP/CURRENT_STATE.md) | [Current Limitations](CAPABILITIES/CURRENT_LIMITATIONS.md)
 
 ---
 

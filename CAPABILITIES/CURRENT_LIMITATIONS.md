@@ -120,11 +120,12 @@ This makes evaluation more rigorous — but also more demanding.
 
 ## 7. Operational Maturity Is Progressing
 
-Container-orchestrated deployment is operational (Kubernetes manifests, Docker Compose), and horizontal scaling has been validated. Current operational constraints include:
+Deployment is packaged and repeatable, with automated lifecycle management, authenticated access, network isolation, and transport security. Current operational constraints include:
 
-* limited production monitoring and alerting
+* limited production monitoring dashboards and alerting integrations
 * manual artifact promotion
 * no turnkey multi-tenant isolation
+* encryption key rotation is manual
 
 NAM is stable for:
 
@@ -132,9 +133,9 @@ NAM is stable for:
 * controlled pilots
 * internal and partner deployments
 
-It is not yet packaged as a fully managed platform.
+It is approaching production-grade operations but is not yet a fully managed platform.
 
-→ See: [Current State — Scaling](../ROADMAP/CURRENT_STATE.md#scaling--deployment)
+> See: [Current State -- Scaling](../ROADMAP/CURRENT_STATE.md#scaling--deployment)
 
 ---
 

@@ -13,10 +13,10 @@ nam-documentation/
 │   └── TERMINOLOGY.md            # Canonical definitions (address, affordance, etc.)
 
 ├── ARCHITECTURE/
-│   ├── HIGH_LEVEL_SYSTEM.md      # Conceptual system (no code)
+│   ├── HIGH_LEVEL_SYSTEMS.md     # Conceptual system (no code)
 │   ├── GEOMETRIC_RETRIEVAL.md    # Cubes, planes, lines, points
 │   ├── ADDRESSING_MODEL.md       # Determinism, axes, wildcards
-│   ├── INGESTION_MODEL.md        # Determinism, axes, wildcards
+│   ├── INGESTION_MODEL.md        # Entity-anchored bundling, encoder roles
 │   └── QUERY_MODEL.md            # How questions become probes
 
 ├── CAPABILITIES/
@@ -32,7 +32,7 @@ nam-documentation/
 ├── GOVERNANCE/
 │   ├── LICENSING_MODEL.md        # How source-available licensing works
 │   ├── CONTRIBUTIONS.md          # How collaborators engage (non-OSS)
-│   └── SECURITY_AND_TRUST.md     # Determinism, auditability, guarantees
+│   └── SECURITY_AND_TRUST.md     # Auth, isolation, encryption, audit, trust model
 
 └── APPENDIX/
     ├── FAQ.md                    # High-signal answers only

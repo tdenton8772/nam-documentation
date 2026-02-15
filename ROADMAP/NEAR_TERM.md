@@ -1,6 +1,6 @@
-# NEAR_TERM.md
+# Near-Term Roadmap
 
-**Time horizon:** ~3–6 months
+**Time horizon:** ~3-6 months
 **Scope:** Hardening NAM for real pilots and early production use
 
 ---
@@ -16,14 +16,15 @@ It is about **turning what already exists into something people can reliably run
 
 ## 1. Deployability & Operational Readiness
 
-**Status:** Partially achieved. Container orchestration (Kubernetes, Docker Compose), repeatable reset workflows, and sidecar architecture are operational. Continuing to harden.
+**Status:** Substantially achieved. Packaged deployment, automated lifecycle management, readiness gating, and repeatable upgrade workflows are operational. Security hardening (authentication, network isolation, transport encryption, encryption at rest) is implemented and exercised.
 
 **Remaining work includes:**
 
 * **Production observability**
 
-  * Structured logging, metrics export, health endpoints
+  * Metrics export to external monitoring systems
   * Alerting on lease failures, partition lag, and entity store drift
+  * Dashboards for ingest throughput, query latency, and cluster health
 * **Configuration hardening**
 
   * Explicit separation of runtime config vs training artifacts
@@ -36,7 +37,7 @@ It is about **turning what already exists into something people can reliably run
 **Outcome:**
 Teams can deploy, monitor, and operate NAM without deep internal knowledge.
 
-→ See: [Current State — Scaling](CURRENT_STATE.md#scaling--deployment)
+> See: [Current State -- Scaling](CURRENT_STATE.md#scaling--deployment)
 
 ---
 
@@ -69,13 +70,13 @@ NAM can be evaluated meaningfully on real customer data, not just synthetic or d
 
 ## 3. Test Coverage & Deterministic Validation
 
-**Status:** Foundational coverage in place. Deterministic test harnesses cover the rule-based NLP pipeline, encoder head compatibility, and end-to-end ingestion. Continuing to expand.
+**Status:** Foundational coverage in place. Deterministic test harnesses cover the rule-based NLP pipeline, encoder head compatibility, end-to-end ingestion, and authentication. Continuing to expand.
 
 **Remaining work includes:**
 
 * **Scenario-driven integration tests**
 
-  * Full ingestion → addressing → storage → query round-trips
+  * Full ingestion -> addressing -> storage -> query round-trips
   * Explicit active vs inactive record expectations
   * Cross-replica consistency validation
 * **Artifact validation tests**
@@ -119,17 +120,33 @@ Queries feel more robust while remaining explainable and deterministic.
 
 ## 5. Documentation & Evaluation Support
 
-**Goal:** Enable informed evaluation without access to private implementation details.
+**Status:** Progressing. Public documentation now covers the conceptual model, security and trust model, current capabilities, and governance. Continuing to expand.
 
-This includes:
+**Remaining work includes:**
 
-* Public-facing documentation updates
-* Clear evaluation guidance for pilots
-* Honest articulation of tradeoffs and limitations
+* Evaluation guidance for pilots
+* Example workflows for domain adaptation
 * Shared vocabulary across engineering, product, and GTM stakeholders
+* Operator-facing documentation (runbooks, capacity planning, troubleshooting)
 
 **Outcome:**
 NAM can be evaluated on its merits, not misunderstood or mispositioned.
+
+---
+
+## 6. Multi-Tenant Considerations
+
+**Goal:** Prepare the system for deployments where multiple tenants or domains share infrastructure.
+
+This is early-stage work that includes:
+
+* Tenant-scoped data isolation patterns
+* Per-tenant configuration and artifact management
+* Access control boundaries between tenants
+* Audit logging scoped to tenant context
+
+**Outcome:**
+NAM can support multi-tenant pilots without architectural rework.
 
 ---
 
@@ -140,7 +157,7 @@ The near-term roadmap does **not** include:
 * Real-time learning or adaptive query behavior
 * Ranking, scoring, or probabilistic relevance models
 * Autonomous optimization or self-tuning
-* Broad, multi-tenant production hardening
+* Automated key rotation for encrypted storage
 
 Those belong in later phases.
 
@@ -150,12 +167,12 @@ Those belong in later phases.
 
 The short-term roadmap is about **earning trust**:
 
-* Trust that NAM can be deployed
+* Trust that NAM can be deployed securely
 * Trust that it behaves deterministically
+* Trust that access is authenticated and auditable
 * Trust that it can be evaluated honestly
 * Trust that domain adaptation is deliberate and controlled
 
 Once those foundations are solid, expanding capability becomes much easier — and much safer.
 
-→ See also: [Current State](CURRENT_STATE.md) | [Current Limitations](../CAPABILITIES/CURRENT_LIMITATIONS.md) | [Long-Term Direction](LONG_TERM.md)
-
+> See also: [Current State](CURRENT_STATE.md) | [Current Limitations](../CAPABILITIES/CURRENT_LIMITATIONS.md) | [Long-Term Direction](LONG_TERM.md)

@@ -13,11 +13,15 @@ nam-documentation/
 │   └── TERMINOLOGY.md            # Canonical definitions (address, affordance, etc.)
 
 ├── ARCHITECTURE/
-│   ├── HIGH_LEVEL_SYSTEMS.md     # Conceptual system (no code)
+│   ├── HIGH_LEVEL_SYSTEMS.md     # Conceptual system (11 components)
 │   ├── GEOMETRIC_RETRIEVAL.md    # Cubes, planes, lines, points
-│   ├── ADDRESSING_MODEL.md       # Determinism, axes, wildcards
-│   ├── INGESTION_MODEL.md        # Entity-anchored bundling, encoder roles
-│   └── QUERY_MODEL.md            # How questions become probes
+│   ├── ADDRESSING_MODEL.md       # Determinism, axes, wildcards, hash-based entity IDs
+│   ├── INGESTION_MODEL.md        # Entity-anchored bundling, encoder roles, CDC entry
+│   ├── QUERY_MODEL.md            # How questions become probes (progressive fan-out)
+│   ├── PIPELINE_ARCHITECTURE.md  # Staged pipeline, per-pod architecture, lease coordination
+│   ├── DATA_PERSISTENCE.md       # S3-backed storage, on-demand caching, recovery model
+│   ├── DEPLOYMENT_ARCHITECTURE.md # Service topology, network layout, operational lifecycle
+│   └── API_REFERENCE.md          # Public API (auth, query, admin, KV proxy)
 
 ├── CAPABILITIES/
 │   ├── WHAT_NAM_CAN_DO.md        # Supported problem classes

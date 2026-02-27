@@ -54,25 +54,42 @@ NAM does not “optimize” ingest. It **commits** it.
 
 ---
 
+## The Ingest Pipeline
+
+Ingestion in NAM is a **staged pipeline**, not a monolithic function call.
+
+Raw data enters through **change data capture (CDC)** — NAM watches an upstream data store for mutations and streams them into the pipeline automatically. Data does not enter via batch import or direct API submission.
+
+Each record passes through the following stages in order:
+
+1. **NLP** — Rule-based linguistic analysis (tokenization, POS tagging, lemmatization, NER, dependency parsing). Fully deterministic, no neural models.
+2. **Ontology classification** — Determines the semantic type of the record (person, object, location, concept, etc.)
+3. **Encoder head fan-out** — Multiple heads run in parallel, each extracting a specific semantic signal
+4. **Addressing** — Entity-anchored bundling and deterministic address construction
+
+> See: [Pipeline Architecture](PIPELINE_ARCHITECTURE.md) for the full runtime architecture
+
+---
+
 ## Encoder Heads at Ingest Time
 
-During ingestion, raw input (text, events, records, documents) is passed through a set of **encoder heads**.
+During ingestion, the parsed document is passed through a set of **encoder heads** running in parallel.
 
-Each head is responsible for a specific semantic dimension, for example:
+NAM currently uses five encoder heads:
 
-* Entity
-* Ontology
-* Context
-* Attribute
-* Affordance (when applicable)
+* **Entity** — extracts named entities and resolves them to canonical identifiers
+* **Ontology** — classifies the semantic type of the overall record
+* **Attribute** — extracts properties and descriptors (adjectives, modifiers)
+* **Affordance** — extracts actions and capabilities (verbs)
+* **Context** — extracts situational, temporal, and categorical signals
 
-Each head may emit:
+Each head:
 
-* One address
-* Many addresses
-* Or no address at all
+* Receives the same parsed document (NLP output)
+* Extracts its specific signal independently
+* Emits one or more semantic components
 
-All emitted addresses are treated as **equally valid**.
+All emitted components are treated as **equally valid**.
 
 There is no concept of “primary” or “secondary” meaning at ingest.
 
@@ -142,6 +159,26 @@ This is essential for:
 
 ---
 
+## Entity Resolution at Ingest Time
+
+Entity resolution is the process of mapping surface forms ("Abraham Lincoln", "Lincoln", "Abe Lincoln") to a **canonical entity identifier**.
+
+NAM uses **hash-based entity identifiers**: a deterministic hash of the canonical entity form, independent of the entity's ontology type. This ensures that:
+
+* The same entity always receives the same identifier, regardless of how it was classified
+* Ingest and query always agree on entity identity
+* Ontology reclassification (e.g., "concept" at ingest vs "object" at query) does not break retrieval
+
+Entity resolution follows a **fuzzy-first** strategy:
+
+* Candidate keys are checked first (approximate matches via canonical form similarity)
+* Surface form lookups serve as a fallback
+* New entities are registered when no match is found
+
+The entity store acts as a **warm cache** that accumulates knowledge across ingestion cycles. It is not flushed during pipeline resets.
+
+---
+
 ## Ingest-Time Learning
 
 NAM's ingest pipeline is read-only with respect to navigation rules, but it does learn continuously in a constrained way:
@@ -183,20 +220,17 @@ Ingestion does not store records “by content”.
 
 It stores **address → record references**.
 
-The record payload itself is opaque to the addressing system and may live:
-
-* In memory
-* In files
-* In object storage
-* In external systems
-
-NAM’s storage layer only cares about:
+The record payload itself is opaque to the addressing system and lives in the source store. NAM’s storage layer only cares about:
 
 * The address
 * The record identifier
 * The pointer to the payload
 
+Storage writes during ingestion are **asynchronous and fire-and-forget**. The addressing stage queues writes to a background thread and never blocks the pipeline. Write batching happens naturally as the background thread accumulates and flushes in groups.
+
 This separation is intentional and allows storage backends to be swapped without changing semantics.
+
+→ See: [Data Persistence](DATA_PERSISTENCE.md)
 
 ---
 
@@ -262,4 +296,4 @@ In NAM:
 
 Everything else follows from this.
 
-→ See also: [High-Level Systems](HIGH_LEVEL_SYSTEMS.md) | [Query Model](QUERY_MODEL.md) | [Addressing Model](ADDRESSING_MODEL.md) | [Geometric Retrieval](GEOMETRIC_RETREIVAL.md)
+→ See also: [High-Level Systems](HIGH_LEVEL_SYSTEMS.md) | [Query Model](QUERY_MODEL.md) | [Addressing Model](ADDRESSING_MODEL.md) | [Geometric Retrieval](GEOMETRIC_RETRIEVAL.md) | [Pipeline Architecture](PIPELINE_ARCHITECTURE.md) | [Data Persistence](DATA_PERSISTENCE.md)

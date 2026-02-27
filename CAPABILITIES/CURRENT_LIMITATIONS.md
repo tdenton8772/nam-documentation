@@ -43,22 +43,22 @@ This improves trust, but can feel cautious during early pilots.
 
 ---
 
-## 3. Entity Resolution Is Type-Scoped but Still Improving
+## 3. Entity Resolution Is Stable but Still Improving
 
-Entity resolution is now type-scoped and distributed:
+Entity resolution has been significantly hardened:
 
-* every entity has a type derived from NER analysis
-* resolution only searches within the declared type
-* surface forms are matched to canonical entries with approximate matching and structural guards
+* entities are identified by **hash-based, type-independent identifiers** — the same entity always gets the same ID regardless of ontology classification
+* resolution uses a **fuzzy-first strategy** — candidate key lookups before exact surface form matching
 * the entity store is shared across all replicas with deterministic resolution order
+* node-level caching reduces resolution latency to microseconds for warm lookups
 
 Current constraints:
 
 * deep cross-document coreference is not yet automatic
 * entity identity improves with cleaner input data and broader surface form coverage
-* type scoping prevents semantic bleed but relies on accurate NER classification
+* entity deduplication (merging near-identical fuzzy matches) is planned but not yet implemented
 
-→ See: [Current State — Entity Resolution](../ROADMAP/CURRENT_STATE.md#type-scoped-entity-resolution)
+→ See: [Current State — Entity Resolution](../ROADMAP/CURRENT_STATE.md#hash-based-entity-resolution)
 
 ---
 
@@ -68,17 +68,17 @@ NAM only retrieves what lies within the probed geometric region.
 
 Today:
 
-* probes are intentionally narrow
-* fallback widening is explicit, not automatic
-* exhaustive recall is not attempted by default
+* **progressive fan-out** automatically widens from specific to general probes within each ontology tier
+* **inter-tier satisfaction** stops probing when enough results are found, which may leave some tiers unexplored
+* ontology tier reordering based on bundler hints improves recall for the most likely types
 
 This can result in:
 
-* fewer results than expected
-* “missing” records that lie outside the initial geometry
-* the need for explicit exploratory queries
+* fewer results than expected for queries spanning many ontology types
+* results concentrated in the first few tiers when satisfaction is reached early
+* the need for explicit exploratory queries to access less-common ontology tiers
 
-This behavior is intentional but still being tuned for usability.
+This behavior is intentional — bounded recall is a feature, not a bug. The satisfaction threshold and probe budgets are tunable.
 
 ---
 
@@ -120,7 +120,7 @@ This makes evaluation more rigorous — but also more demanding.
 
 ## 7. Operational Maturity Is Progressing
 
-Deployment is packaged and repeatable, with automated lifecycle management, authenticated access, network isolation, and transport security. Current operational constraints include:
+Deployment is packaged and repeatable, with automated lifecycle management, authenticated access, network isolation, transport security, and S3-backed persistent storage. Current operational constraints include:
 
 * limited production monitoring dashboards and alerting integrations
 * manual artifact promotion
@@ -133,9 +133,11 @@ NAM is stable for:
 * controlled pilots
 * internal and partner deployments
 
+The storage layer now supports **object-storage-backed persistence** with on-demand caching, enabling fast cold starts and data recovery without local disk dependencies. This significantly improves operational resilience.
+
 It is approaching production-grade operations but is not yet a fully managed platform.
 
-> See: [Current State -- Scaling](../ROADMAP/CURRENT_STATE.md#scaling--deployment)
+> See: [Current State -- Scaling](../ROADMAP/CURRENT_STATE.md#scaling--deployment) | [Data Persistence](../ARCHITECTURE/DATA_PERSISTENCE.md)
 
 ---
 
@@ -155,9 +157,13 @@ This is a reality of stage, not a reflection of ambition.
 
 Despite these limitations, today’s NAM implementation already supports:
 
-* deterministic ingestion and addressing
-* inspectable query execution
-* reproducible retrieval behavior
+* deterministic ingestion and addressing via a staged, rule-based pipeline
+* hash-based entity resolution with fuzzy-first matching
+* progressive fan-out query execution with early termination
+* ontology-aware retrieval with 26 canonical types (no catch-all fallback)
+* S3-backed persistent storage with on-demand caching
+* CDC-based continuous ingestion with automatic lease coordination
+* inspectable query execution and reproducible retrieval behavior
 * exploratory semantic navigation
 * integration with downstream systems (including LLMs)
 * meaningful pilots in well-scoped domains

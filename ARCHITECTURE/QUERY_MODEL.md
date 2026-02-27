@@ -85,18 +85,23 @@ No head may invent:
 
 NAM does not treat all queries equally.
 
-Based on encoder output, the planner selects a **query mode**, such as:
+Based on encoder output, the planner selects one of two **query modes**:
 
-* Exploratory
-* Descriptive
-* Lookup-like
-* Pattern-seeking
+### Exploratory Mode (default)
 
-The mode affects:
+Used when no specific affordance verb is recognized in the query. The system explores broadly across ontology tiers.
 
-* How wide the query is allowed to go
-* Which ontologies are eligible
-* How aggressively wildcarding is applied
+* Ontology tiers are probed in a predefined order, with tiers containing the bundler's ontology **hints** probed first
+* Each tier groups related ontologies (e.g., Tier 1: person, object, location, concept; Tier 2: time, event, action; etc.)
+* The system probes progressively from most-specific addresses to least-specific within each tier
+
+### Affordance Mode
+
+Used when an affordance verb is recognized (e.g., "Where is...", "What did... do", "Who leads..."). The affordance selects specific ontology tiers and execution strategies.
+
+* Affordance verbs undergo synonym folding to match canonical forms established at ingest
+* Each affordance maps to a set of ontology-role capabilities (pre-computed)
+* Probing is narrower and more targeted than exploratory mode
 
 The mode is **derived**, not specified by the user.
 
@@ -128,43 +133,55 @@ This is the core of the query model.
 
 The planner:
 
-* Takes ontology + entity + axis signals
-* Constructs a **finite set of concrete addresses**
-* Orders them from most specific → most general
+* Takes ontology + entity + axis signals from encoding
+* Captures **ontology hints** from the bundler (what types the bundler actually observed)
+* Reorders ontology tiers so that hinted tiers are probed first
+* Constructs a **finite, budget-bounded set of concrete addresses**
+* Orders them from most specific to most general within each tier
 
 Each planned address is a valid KV lookup.
 
 Examples:
 
-* Point probes (x,y,z fully specified)
+* Point probes (all axes populated: entity + attribute + affordance + context)
 * Line probes (one axis wildcarded)
 * Plane probes (two axes wildcarded)
+* Volume probes (only entity specified, all other axes wildcarded)
 
 No “contains”, no “similar to”, no post-filtering.
 
+Planning is **budget-aware**: the total number of planned addresses is capped to prevent unbounded exploration.
+
 ---
 
-## Step 6: Probe Execution
+## Step 6: Probe Execution (Progressive Fan-Out)
 
-Each planned address becomes a **direct storage probe**.
+Each planned address becomes a **direct storage probe**, but probes are executed using a **progressive fan-out** strategy:
+
+1. Within each ontology tier, addresses are sorted by **specificity** (how many axes are populated)
+2. The most specific addresses are probed first (specificity 3: all axes set)
+3. Then less specific (specificity 2, 1, 0)
+4. After completing a tier, if enough matches have been found (above a **satisfaction threshold**), remaining tiers are skipped
 
 For each probe:
 
 * A partition key is computed
-* A bucket is selected
 * The storage backend is queried directly
+* Matching records are collected and deduplicated
 
-If a probe returns records:
+### Early termination
 
-* They are collected
-* Deduplicated
-* Associated with the probe that retrieved them
+Progressive fan-out enables **early termination**: if a tier yields sufficient results, the system stops probing rather than exhaustively scanning all planned addresses. This bounds query latency while preserving determinism — the same query with the same data always terminates at the same point.
 
-If a probe returns nothing:
+### Budget limits
 
-* The planner proceeds to the next address
+Execution is bounded by:
 
-This is intentional widening, not retry logic.
+* A maximum number of address probes
+* A maximum number of document fetches
+* A satisfaction threshold per tier
+
+These limits ensure that even highly ambiguous queries complete in bounded time.
 
 ---
 
@@ -176,13 +193,14 @@ NAM does not “broaden” queries by:
 * Dropping entities
 * Falling back to similarity
 
-Widening only occurs via:
+Widening occurs through structured mechanisms:
 
-* Explicit wildcard axes (`__null__`)
-* Ontology tier expansion
-* Planner-defined rules
+* **Specificity descent** — within a tier, probes progress from fully-specified (point) to partially-specified (line, plane)
+* **Ontology tier expansion** — when a tier is exhausted without satisfaction, the next tier is probed
+* **Hint-prioritized ordering** — tiers containing ontologies observed by the bundler are probed before others
+* **Explicit wildcard axes** — `__null__` coordinates widen the geometric region
 
-Every widening step is explainable.
+Every widening step is explainable: the system can report which tier it probed, at what specificity, and whether satisfaction was reached.
 
 ---
 
@@ -267,4 +285,4 @@ This separation is what makes NAM composable.
 A NAM query is not a search.
 It is a **geometric exploration of semantic space**.
 
-→ See also: [Ingestion Model](INGESTION_MODEL.md) | [Geometric Retrieval](GEOMETRIC_RETREIVAL.md) | [High-Level Systems](HIGH_LEVEL_SYSTEMS.md) | [Terminology](../PHILOSOPHY/TERMINOLOGY.md)
+→ See also: [Ingestion Model](INGESTION_MODEL.md) | [Geometric Retrieval](GEOMETRIC_RETRIEVAL.md) | [High-Level Systems](HIGH_LEVEL_SYSTEMS.md) | [Pipeline Architecture](PIPELINE_ARCHITECTURE.md) | [Terminology](../PHILOSOPHY/TERMINOLOGY.md)

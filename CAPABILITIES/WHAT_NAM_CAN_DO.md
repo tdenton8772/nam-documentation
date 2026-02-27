@@ -196,4 +196,4 @@ NAM is well suited for problems that require:
 It is not a general-purpose search engine.
 It is a **semantic memory system** designed to support sense-making at scale.
 
-→ See also: [What NAM Cannot Do](WHAT_NAM_CANNOT_DO.md) | [Current Limitations](CURRENT_LIMITATIONS.md) | [Geometric Retrieval](../ARCHITECTURE/GEOMETRIC_RETREIVAL.md)
+→ See also: [What NAM Cannot Do](WHAT_NAM_CANNOT_DO.md) | [Current Limitations](CURRENT_LIMITATIONS.md) | [Geometric Retrieval](../ARCHITECTURE/GEOMETRIC_RETRIEVAL.md)

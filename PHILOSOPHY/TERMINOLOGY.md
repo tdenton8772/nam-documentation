@@ -212,6 +212,59 @@ If no affordance is detected, NAM enters **exploratory mode**.
 
 ---
 
+## Entity Bundle
+
+An **entity bundle** is a group of semantic components (attributes, affordances, contexts) that are linguistically linked to a specific entity.
+
+Bundles are constructed by walking the dependency parse tree:
+
+* Adjectival modifiers → attributes for the governed entity
+* Verb arguments → affordances for the governed entity
+* Contexts are shared across all bundles (they apply to the record as a whole)
+
+Bundling prevents combinatorial address explosion by only generating addresses for relationships that actually exist in the text.
+
+---
+
+## Progressive Fan-Out
+
+**Progressive fan-out** is the query execution strategy that probes addresses in order of decreasing specificity.
+
+* Within each ontology tier, fully specified addresses (points) are probed first
+* Then partially specified addresses (lines, planes) are probed
+* If a tier yields enough matches (above a satisfaction threshold), remaining tiers are skipped
+
+Progressive fan-out is:
+
+* **Deterministic** — the same query always probes in the same order
+* **Budget-bounded** — total probes and fetches are capped
+* **Early-terminating** — stops when satisfaction is reached
+
+---
+
+## Satisfaction Threshold
+
+The **satisfaction threshold** is the minimum number of results that must be found within an ontology tier before the query engine stops probing additional tiers.
+
+This is not a quality measure — it is a **completeness gate**. If enough results exist in the most likely tiers, there is no need to probe less likely ones.
+
+---
+
+## Lease
+
+A **lease** is a time-bounded ownership claim on a data partition.
+
+In NAM:
+
+* Leases are stored as key-value documents with TTLs
+* Pods claim leases via compare-and-swap (CAS) operations
+* Expired leases are automatically reclaimable by any surviving pod
+* No external coordinator (Redis, ZooKeeper, etc.) is required
+
+Leases exist to distribute CDC streaming work across ingest replicas without consensus protocols.
+
+---
+
 ## Exploratory Mode
 
 **Exploratory mode** is deterministic, not heuristic.
@@ -310,4 +363,18 @@ This document exists so that:
 
 If a word is overloaded — **stop and define it**.
 
-→ See also: [Design Principles](DESIGN_PRINCIPLES.md) | [Addressing Model](../ARCHITECTURE/ADDRESSING_MODEL.md) | [Geometric Retrieval](../ARCHITECTURE/GEOMETRIC_RETREIVAL.md) | [Glossary](../APPENDIX/GLOSSARY.md)
+---
+
+## Affordance Mode
+
+**Affordance mode** is the query execution mode activated when an affordance verb is recognized in the query.
+
+Affordance mode differs from exploratory mode in that:
+
+* Specific ontology tiers are selected based on the affordance
+* Probing is narrower and more targeted
+* Verb synonym folding maps the query verb to canonical forms established at ingest
+
+If no affordance verb is recognized, the query defaults to exploratory mode.
+
+→ See also: [Design Principles](DESIGN_PRINCIPLES.md) | [Addressing Model](../ARCHITECTURE/ADDRESSING_MODEL.md) | [Geometric Retrieval](../ARCHITECTURE/GEOMETRIC_RETRIEVAL.md) | [Pipeline Architecture](../ARCHITECTURE/PIPELINE_ARCHITECTURE.md) | [Glossary](../APPENDIX/GLOSSARY.md)

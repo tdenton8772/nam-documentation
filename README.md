@@ -87,6 +87,15 @@ This documentation is organized for different audiences:
   * `GEOMETRIC_RETRIEVAL.md`
   * `ADDRESSING_MODEL.md`
   * `QUERY_MODEL.md`
+  * `PIPELINE_ARCHITECTURE.md`
+  * `DATA_PERSISTENCE.md`
+
+* **SDK developers and integrators**
+  Focus on:
+
+  * `ARCHITECTURE/API_REFERENCE.md`
+  * `ARCHITECTURE/QUERY_MODEL.md`
+  * `GOVERNANCE/SECURITY_AND_TRUST.md`
 
 * **Security and infrastructure reviewers**
   Focus on:
@@ -124,7 +133,8 @@ These principles are expanded in `PHILOSOPHY/DESIGN_PRINCIPLES.md`.
 
 NAM is in **active production-pilot phase** with proven horizontal scaling and operational security.
 
-* The core pipeline -- rule-based NLP, entity-anchored bundling, distributed entity resolution -- is implemented and exercised against real corpora
+* The core pipeline -- rule-based NLP, entity-anchored bundling, hash-based entity resolution, progressive fan-out queries -- is implemented and exercised against real corpora
+* Storage is backed by S3-compatible object storage with on-demand caching for fast cold starts
 * The system scales horizontally across multiple ingest, encoding, and storage replicas
 * Authentication, network isolation, transport security, and encryption at rest are operational
 * Automated lifecycle management handles cluster bootstrap, health monitoring, and readiness gating

@@ -172,14 +172,15 @@ This is non-negotiable.
 ## Can NAM scale?
 
 NAM scales horizontally along familiar axes:
-- Partition-based distribution
-- Parallel ingestion replicas with CAS-based coordination
-- Independent encoding, storage, and NLP services
-- Sidecar architecture for pipeline overlap
+- **Partition-based distribution** — data is divided across partitions, each owned by one ingest pod
+- **CAS-based lease coordination** — pods claim and shed partitions without external coordinators
+- **Per-pod pipeline isolation** — each pod runs a complete processing pipeline with a local message bus
+- **Parallel entity extraction** — the most I/O-intensive encoder head runs multiple workers per pod
+- **Asynchronous storage writes** — addressing never blocks the pipeline; writes are batched in the background
 
-Horizontal scaling has been validated with multiple ingest, encoding, and storage replicas coordinating against a single data service.
+Adding pods triggers automatic rebalancing. Removing pods triggers automatic failover. Throughput scales linearly with pod count.
 
-→ See: [Current State — Scaling](../ROADMAP/CURRENT_STATE.md#scaling--deployment)
+→ See: [Current State — Scaling](../ROADMAP/CURRENT_STATE.md#scaling--deployment) | [Pipeline Architecture](../ARCHITECTURE/PIPELINE_ARCHITECTURE.md)
 
 ---
 
@@ -204,11 +205,45 @@ It is suitable for:
 - Domain-specific evaluations
 - Partner integrations with hands-on support
 
-Packaged deployment, automated lifecycle management, authenticated access, network isolation, and transport security are operational. The core pipeline (rule-based NLP, entity-anchored bundling, distributed entity resolution) is exercised against real corpora.
+Packaged deployment, automated lifecycle management, authenticated access, network isolation, and transport security are operational. The core pipeline (rule-based NLP, entity-anchored bundling, hash-based entity resolution, progressive fan-out queries) is exercised against real corpora.
+
+Recent hardening includes:
+- S3-backed persistent storage with on-demand caching for fast cold starts
+- Hash-based, type-independent entity identifiers for stable ingest/query alignment
+- Ontology system with 26 canonical types (no catch-all fallback)
+- Automatic DCP health recovery and supervisor-driven pod restart
 
 It is not yet a fully managed platform.
 
 > See: [Current State](../ROADMAP/CURRENT_STATE.md) | [Current Limitations](../CAPABILITIES/CURRENT_LIMITATIONS.md)
+
+---
+
+## How does NAM persist data?
+
+NAM uses a **distributed key-value store backed by S3-compatible object storage**.
+
+Data is written locally, then asynchronously replicated to object storage. On restart:
+- Only metadata manifests are downloaded (fast cold start)
+- Individual data files are fetched on demand when first accessed
+- This enables startup times measured in seconds, not minutes
+
+All address state is **derived** — it can be rebuilt by re-ingesting source data. The address index is never a system of record.
+
+> See: [Data Persistence](../ARCHITECTURE/DATA_PERSISTENCE.md)
+
+---
+
+## How does NAM handle failures?
+
+NAM is designed for **automatic recovery** at multiple levels:
+
+- **Pod failure**: Leases expire, surviving pods reclaim partitions, CDC resumes from checkpoints
+- **Storage failure**: S3 serves as durable backup; local state is rebuilt on demand
+- **CDC adapter exhaustion**: Consecutive failure detection triggers health reporting, supervisor kills and restarts the pod
+- **Complete cluster loss**: All state is recoverable from S3; coordination state starts fresh
+
+Recovery is automatic — no manual intervention required for common failure modes.
 
 ---
 

@@ -163,4 +163,4 @@ NAM complements those systems — it doesn’t compete with them directly.
 
 **NAM is a deterministic, geometry-based memory system designed to help humans and machines understand information before trying to answer questions about it.**
 
-→ See also: [Where NAM Fits](WHERE_NAM_FITS.md) | [Terminology](../PHILOSOPHY/TERMINOLOGY.md) | [Design Principles](../PHILOSOPHY/DESIGN_PRINCIPLES.md) | [Geometric Retrieval](../ARCHITECTURE/GEOMETRIC_RETREIVAL.md)
+→ See also: [Where NAM Fits](WHERE_NAM_FITS.md) | [Terminology](../PHILOSOPHY/TERMINOLOGY.md) | [Design Principles](../PHILOSOPHY/DESIGN_PRINCIPLES.md) | [Geometric Retrieval](../ARCHITECTURE/GEOMETRIC_RETRIEVAL.md)

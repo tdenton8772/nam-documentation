@@ -48,14 +48,15 @@ The system is past prototype, past "does it work," and into "how well does it op
 
 > See: [Addressing Model](../ARCHITECTURE/ADDRESSING_MODEL.md)
 
-### Type-Scoped Entity Resolution
+### Hash-Based Entity Resolution
 
-* Every entity has a type derived from NER analysis during ingest
-* Entity resolution is scoped by type — cross-type collisions are structurally prevented
-* Surface forms are matched to canonical entries with approximate matching and structural guards
+* Every entity is identified by a **deterministic hash** of its canonical form — type-independent and stable
+* The same entity always receives the same identifier, regardless of ontology classification (person, object, concept, etc.)
+* Resolution uses a **fuzzy-first strategy**: candidate key lookups (approximate matching) before exact surface form matching
 * The entity store is distributed across the cluster with deterministic resolution order
 * All ingest and query replicas share the same entity namespace
 * Node-level caching reduces resolution latency to microseconds for warm lookups
+* The entity store persists across pipeline resets, acting as a warm cache that accumulates knowledge over time
 
 ### Semantic Addressing
 
@@ -64,15 +65,19 @@ The system is past prototype, past "does it work," and into "how well does it op
 * Address structure reflects semantic geometry, not similarity
 * Storage keys are the address space
 
-> See: [Geometric Retrieval](../ARCHITECTURE/GEOMETRIC_RETREIVAL.md)
+> See: [Geometric Retrieval](../ARCHITECTURE/GEOMETRIC_RETRIEVAL.md)
 
-### Geometric Retrieval
+### Geometric Retrieval with Progressive Fan-Out
 
 * Queries generate bounded sets of probes into semantic space
 * Retrieval operates over points, lines, planes, and volumes
-* Progressive fan-out broadens geometrically — no scanning
+* **Progressive fan-out** probes addresses in specificity order within each ontology tier
+* **Inter-tier satisfaction** stops probing when enough results are found, preventing unbounded exploration
+* **Ontology hint reordering** prioritizes tiers containing types the bundler observed in the query
+* Two explicit query modes: **exploratory** (no affordance detected) and **affordance** (specific intent recognized)
+* Budget limits cap total probes and document fetches
 * Exploratory and targeted queries are supported
-* Results are explainable by address overlap
+* Results are explainable by address overlap, tier probed, and specificity level
 
 ### Ingest-Time Learning
 
@@ -101,24 +106,35 @@ The system is past prototype, past "does it work," and into "how well does it op
 
 ---
 
+### Ontology Classification
+
+* 26 canonical ontology types organized into 4 tiers
+* No catch-all "OTHER" category — every record maps to a real semantic type
+* "concept" serves as the broadest valid category
+* Ontology hints from the bundler inform query-time tier prioritization
+
+---
+
 ## Implemented Subsystems
 
 Today's NAM implementation includes:
 
-* Pluggable encoder head framework (one head per semantic axis)
-* Entity-anchored address construction via dependency-parse-scoped bundling
-* Type-scoped entity resolution with distributed shared store and node-level caching
-* Rule-based NLP pipeline (deterministic tokenization, POS tagging, NER, dependency parsing)
-* Addressing and partitioning logic
-* Storage abstraction layer with distributed KV backend
-* Query planner and runner with progressive geometric fan-out
-* Public query API with authenticated access
-* CDC-based ingestion from change streams
-* CAS-based lease coordination (no external dependencies beyond the data service)
-* Offline calibration pipelines
-* Deterministic test harnesses
+* **Staged ingest pipeline** — CDC streaming, rule-based NLP, ontology classification, parallel encoder heads, entity-anchored addressing
+* **Five encoder heads** — entity (hash-based, fuzzy-first resolution), attribute (dependency-linked), affordance (verb extraction with synonym folding), context (sentence-level), ontology (26 canonical types)
+* **Entity-anchored address construction** via dependency-parse-scoped bundling (30-67% address reduction vs. naive Cartesian product)
+* **Hash-based entity resolution** with fuzzy-first matching, distributed shared store, and node-level caching
+* **Rule-based NLP pipeline** — deterministic tokenization, POS tagging, lemmatization, NER, dependency parsing (10,000+ parses/sec)
+* **Progressive fan-out query execution** with ontology hint reordering, satisfaction thresholds, and budget-bounded probing
+* **Object-storage-backed persistence** — S3-compatible durable storage with on-demand caching for fast cold starts
+* **Per-pod message bus architecture** — pod-local NATS for stage-to-stage communication, no cross-pod coordination for processing
+* **CAS-based lease coordination** — no external dependencies beyond the data service for distributed partition management
+* **DCP health monitoring and recovery** — automatic detection and restart of exhausted CDC adapters
+* **Public query API** with authenticated access
+* **Offline calibration pipelines** and deterministic test harnesses
 
 These systems are not stubs — they are exercised regularly at scale.
+
+→ See: [Pipeline Architecture](../ARCHITECTURE/PIPELINE_ARCHITECTURE.md) | [Data Persistence](../ARCHITECTURE/DATA_PERSISTENCE.md)
 
 ---
 
@@ -148,6 +164,7 @@ NAM now includes a full operational security layer:
 ### Encryption at Rest
 
 * Persistent storage volumes support block-level encryption (opt-in)
+* Object storage (S3) supports server-side encryption
 * Encryption is transparent to the application layer
 
 ### Proxy Services
@@ -191,6 +208,8 @@ Deployment today includes:
 * Environment-specific configurations (local development, cloud production)
 * Repeatable reset and reload workflows
 * Automated cluster bootstrap and health gating
+* S3-backed persistent storage with on-demand caching (fast cold starts)
+* Automatic DCP health recovery (exhaustion detection, supervisor-driven restart)
 * Explicit artifact management
 * Observability of addresses, probes, and execution paths
 
@@ -239,12 +258,13 @@ Implementation details, internal tuning, and private extensions live elsewhere.
 
 Today, NAM is:
 
-* Architecturally coherent
-* Horizontally scalable
-* Deterministic by design
+* Architecturally coherent — staged pipeline, entity-anchored bundling, progressive fan-out
+* Horizontally scalable — per-pod processing, CAS-based coordination, automatic lease management
+* Deterministic by design — rule-based NLP, hash-based entity IDs, reproducible addressing
 * Authenticated and access-controlled
 * Network-isolated and transport-secured
-* Operationally automated (lifecycle management, health gating)
+* Durably persisted — S3-backed storage with on-demand caching and full recovery capability
+* Operationally automated — lifecycle management, health gating, DCP recovery
 * Proven under real workloads
 * Capable of meaningful pilots and production deployments
 * Intentionally conservative in behavior

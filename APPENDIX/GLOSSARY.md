@@ -123,12 +123,51 @@ Wildcards are first-class geometric constructs, not errors or fallbacks.
 
 ---
 
+## Entity Bundle
+
+A group of semantic components (attributes, affordances, contexts) linked to a
+specific entity via dependency parsing. Bundles prevent combinatorial address
+explosion by only generating addresses for linguistically grounded relationships.
+
+→ See: **PHILOSOPHY/TERMINOLOGY.md — Entity Bundle**
+
+---
+
 ## Exploratory Mode
 
 A retrieval mode used when no specific affordance is detected.
 Exploratory retrieval favors coverage and semantic breadth over precision.
 
 → See: **PHILOSOPHY/TERMINOLOGY.md — Exploratory Retrieval**
+
+---
+
+## Affordance Mode
+
+A retrieval mode activated when an affordance verb is recognized in the query.
+Narrows probing to specific ontology tiers based on the detected affordance.
+
+→ See: **PHILOSOPHY/TERMINOLOGY.md — Affordance Mode**
+
+---
+
+## Progressive Fan-Out
+
+The query execution strategy that probes addresses in order of decreasing specificity,
+with early termination when a satisfaction threshold is reached. Deterministic and
+budget-bounded.
+
+→ See: **PHILOSOPHY/TERMINOLOGY.md — Progressive Fan-Out**
+
+---
+
+## Lease
+
+A time-bounded ownership claim on a data partition, stored as a key-value document
+and managed via compare-and-swap operations. Enables distributed partition
+coordination without external dependencies.
+
+→ See: **PHILOSOPHY/TERMINOLOGY.md — Lease**
 
 ---
 

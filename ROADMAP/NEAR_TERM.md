@@ -95,23 +95,27 @@ Changes either preserve determinism or fail loudly.
 
 ## 4. Query Behavior Refinement
 
-**Goal:** Improve reliability and usefulness without changing the core query model.
+**Status:** Significant progress achieved. Progressive fan-out, ontology hint reordering, and inter-tier satisfaction stopping are implemented and validated.
 
-Near-term work includes:
+**Completed:**
 
-* **Better exploratory probing**
+* **Progressive fan-out** — queries now probe addresses in specificity order with budget-bounded execution
+* **Inter-tier satisfaction** — probing stops when enough results are found, preventing unbounded exploration
+* **Ontology hint reordering** — tiers containing types observed by the bundler are probed first
+* **Hash-based entity resolution** — type-independent entity IDs prevent ingest/query alignment failures
+* **Fuzzy-first entity matching** — candidate key lookups as primary resolution path
+* **Ontology hardening** — eliminated "OTHER" catch-all; 26 canonical types with "concept" as broadest fallback
 
-  * Smarter widening when exact geometric matches are absent
-  * Clear rules for fallback behavior
+**Remaining work includes:**
+
 * **Affordance coverage expansion**
 
   * Filling gaps identified during corpus-based testing
   * Improving consistency across domains
-* **Entity handling improvements**
+* **Entity deduplication**
 
+  * Merging near-identical fuzzy matches (entity minion system)
   * Broader surface form coverage and cross-document coreference
-  * Reduced noise from weak or spurious entity matches
-  * Type-scoped resolution is operational; depth and coverage continue to improve
 
 **Outcome:**
 Queries feel more robust while remaining explainable and deterministic.

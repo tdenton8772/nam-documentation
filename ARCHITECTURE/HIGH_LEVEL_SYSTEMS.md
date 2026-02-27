@@ -29,17 +29,19 @@ Both paths rely on the **same semantic primitives**.
 
 ## Core Components (Conceptual)
 
-NAM consists of nine major conceptual components:
+NAM consists of eleven major conceptual components:
 
 1. **Input Interfaces**
-2. **Encoder Heads**
-3. **Address Builder**
-4. **Storage Layer**
-5. **Query Planner**
-6. **Execution Engine**
-7. **Access Control Layer**
-8. **Lifecycle Manager**
-9. **Entity Cache**
+2. **NLP Pipeline**
+3. **Ontology Classifier**
+4. **Encoder Heads**
+5. **Address Builder**
+6. **Storage Layer**
+7. **Query Planner**
+8. **Execution Engine**
+9. **Access Control Layer**
+10. **Lifecycle Manager**
+11. **Entity Cache**
 
 Each component has a single responsibility and is **independently evolvable**.
 
@@ -66,7 +68,61 @@ The interface layer does **not** interpret meaning.
 
 ---
 
-## 2. Encoder Heads
+## 2. NLP Pipeline
+
+The NLP pipeline is a **dedicated linguistic analysis stage** that sits between input interfaces and encoder heads.
+
+It performs:
+
+* Tokenization
+* Part-of-speech tagging
+* Lemmatization
+* Named entity recognition
+* Dependency parsing
+
+### Key architectural properties
+
+The NLP pipeline is:
+
+* **Rule-based** — no neural models, no learned weights, no GPU required
+* **Deterministic** — identical input always produces identical linguistic output
+* **Fast** — throughput exceeds 10,000 parses per second on a single core
+* **Mandatory** — every record passes through NLP before reaching encoder heads
+
+The NLP pipeline exists as a separate component because:
+
+* All encoder heads depend on its output
+* Linguistic analysis is expensive and should happen exactly once per record
+* Deterministic parsing is the foundation on which deterministic addressing is built
+
+→ See: [Pipeline Architecture](PIPELINE_ARCHITECTURE.md)
+
+---
+
+## 3. Ontology Classifier
+
+The ontology classifier determines the **semantic type** of a record.
+
+It assigns one or more ontology labels from a controlled vocabulary:
+
+* **Tier 1** (most general): person, group, organization, location, place, object, concept
+* **Tier 2** (temporal): time, event, action, process, sequence
+* **Tier 3** (state): state, change, cause, effect, condition
+* **Tier 4** (attributes): attribute, quantity, relationship, ownership, identifier, record, document, question, goal
+
+### Key architectural properties
+
+The ontology classifier is:
+
+* **Separate from encoder heads** — it runs after NLP but before heads, providing type context that informs entity resolution and address partitioning
+* **Deterministic** — classification is based on linguistic features, not probabilistic models
+* **Exhaustive** — every record receives at least one ontology label; there is no "unknown" or "other" fallback
+
+The ontology classifier was recently hardened to eliminate a catch-all "OTHER" category that was degrading query precision. Every record now maps to a real semantic type, with "concept" serving as the broadest valid category.
+
+---
+
+## 4. Encoder Heads
 
 Encoder heads are **pluggable, deterministic semantic projectors**.
 
@@ -109,9 +165,19 @@ This allows NAM to be **domain-aware without being non-deterministic**.
 
 Encoder heads exist to **translate language into structure**, not to reason or retrieve.
 
+NAM currently uses five encoder heads:
+
+* **Entity** — extracts named entities, resolves them to canonical hash-based identifiers via a shared entity store
+* **Attribute** — extracts adjectives and descriptors linked to entities via dependency parsing
+* **Affordance** — extracts verbs and actions, with synonym folding to canonical forms
+* **Context** — extracts situational and temporal signals at the sentence level
+* **Ontology** — classifies the semantic type of the record (see Ontology Classifier above)
+
+The **entity head** is the most resource-intensive (due to entity resolution I/O) and is therefore parallelized with multiple workers per ingest replica. Other heads run as single instances per replica.
+
 ---
 
-## 3. Address Builder
+## 5. Address Builder
 
 The address builder composes encoder outputs into **addresses**.
 
@@ -140,7 +206,7 @@ The address builder is:
 
 ---
 
-## 4. Storage Layer
+## 6. Storage Layer
 
 The storage layer persists addresses and record references.
 
@@ -169,13 +235,24 @@ As a result, storage backends are **fully swappable**, including:
 
 Different deployments may choose different storage implementations **without changing encoder behavior, addressing logic, or query planning**.
 
+### Current implementation
+
+The current storage layer is a **distributed key-value store backed by object storage (S3-compatible)**:
+
+* Data is written locally, then asynchronously replicated to object storage
+* On restart, only metadata is downloaded; data files are fetched on demand
+* This enables fast cold starts (seconds, not minutes) and efficient resource use
+* All address state is rebuildable from source data — the address index is derived, never authoritative
+
+→ See: [Data Persistence](DATA_PERSISTENCE.md) for the full persistence model
+
 Critical property:
 
 > Storage is address-aware, not content-aware.
 
 ---
 
-## 5. Query Planner
+## 7. Query Planner
 
 The query planner translates a user query into an **execution plan**.
 
@@ -192,11 +269,17 @@ The planner does **not**:
 * Score similarity
 * Learn from feedback
 
+The planner also:
+
+* Captures **ontology hints** from the bundler (what types were observed in the query text)
+* Reorders ontology tiers so hinted tiers are probed first
+* Caps total planned addresses to a configurable budget
+
 Planning is structural, not statistical.
 
 ---
 
-## 6. Execution Engine
+## 8. Execution Engine
 
 The execution engine carries out the plan.
 
@@ -207,11 +290,19 @@ It:
 * Deduplicates records
 * Returns stable, deterministic results
 
+Execution uses **progressive fan-out**:
+
+* Addresses are probed in specificity order (most specific first)
+* Ontology tiers are probed in hint-prioritized order
+* If a tier yields enough matches (above a satisfaction threshold), remaining tiers are skipped
+* Total probes and fetches are budget-capped
+
 Execution is:
 
 * Bounded
 * Ordered
 * Observable
+* Early-terminating when satisfaction is reached
 
 ---
 
@@ -238,7 +329,7 @@ Runtime behavior never mutates stored state.
 
 ---
 
-## 7. Access Control Layer
+## 9. Access Control Layer
 
 The access control layer mediates all external access to NAM.
 
@@ -269,7 +360,7 @@ The access control layer can be deployed as:
 
 ---
 
-## 8. Lifecycle Manager
+## 10. Lifecycle Manager
 
 The lifecycle manager handles cluster-level operations that must happen before — and during — normal system operation.
 
@@ -296,7 +387,7 @@ The lifecycle manager exists because distributed systems require explicit coordi
 
 ---
 
-## 9. Entity Cache
+## 11. Entity Cache
 
 The entity cache provides **node-level shared memory** for entity resolution.
 
@@ -377,5 +468,5 @@ This separation of concerns ensures that:
 
 NAM is designed to be **operationally boring** — and semantically powerful.
 
-→ See also: [Geometric Retrieval](GEOMETRIC_RETREIVAL.md) | [Ingestion Model](INGESTION_MODEL.md) | [Query Model](QUERY_MODEL.md) | [Design Principles](../PHILOSOPHY/DESIGN_PRINCIPLES.md)
+→ See also: [Geometric Retrieval](GEOMETRIC_RETRIEVAL.md) | [Ingestion Model](INGESTION_MODEL.md) | [Query Model](QUERY_MODEL.md) | [Pipeline Architecture](PIPELINE_ARCHITECTURE.md) | [Data Persistence](DATA_PERSISTENCE.md) | [Design Principles](../PHILOSOPHY/DESIGN_PRINCIPLES.md)
 

@@ -34,24 +34,36 @@ If two inputs produce the same meaning, they **must** produce the same address.
 Conceptually, an address has the following components:
 
 ```
-(namespace, ontology, entity, x, y, z)
+(partition_key, attribute, affordance, context)
 ```
 
 Where:
 
-* **namespace**
-  Logical isolation boundary (environment, tenant, deployment)
+* **partition_key**
+  A composite key that includes the namespace, ontology, and entity anchor. The partition key determines where the address lives in the distributed storage layer.
 
-* **ontology**
-  The semantic domain (e.g. `person`, `location`, `process`, `object`)
+* **attribute**
+  A property or descriptor associated with the entity (e.g., "modern", "political", "ancient"). Extracted by the attribute encoder head from adjectival modifiers in the dependency parse.
 
-* **entity** *(optional)*
-  A normalized anchor (e.g. `entity:tyler_denton`)
+* **affordance**
+  An action or capability associated with the entity (e.g., "advocate", "lead", "create"). Extracted by the affordance encoder head from verbs. Synonym folding maps related verbs to canonical forms.
 
-* **x, y, z**
-  Semantic axes defined by the encoder head
+* **context**
+  A situational or categorical signal (e.g., "political", "historical", "scientific"). Extracted by the context encoder head from sentence-level classification.
 
 These components together define a **single semantic location**.
+
+### Entity Anchoring
+
+The partition key contains an **entity anchor** — a deterministic hash-based identifier for the entity this address refers to.
+
+Entity identifiers are:
+
+* **Hash-based** — derived from a cryptographic hash of the canonical entity form
+* **Type-independent** — the same entity always gets the same identifier, regardless of how it was classified (person, object, concept, etc.)
+* **Stable** — the identifier does not change if the ontology classification changes between ingest and query
+
+This design prevents a common failure mode: if an entity is classified as "concept" at ingest time but "object" at query time, the address must still be reachable. Hash-based, type-independent identifiers guarantee this.
 
 ---
 
@@ -173,19 +185,18 @@ The record remains singular. The addresses are plural.
 
 NAM does **not** generate all possible axis combinations.
 
-Expansion is:
+Without bundling, a record with 5 entities, 3 attributes, 2 affordances, and 2 contexts would produce 60 addresses (5 x 3 x 2 x 2). This is a combinatorial explosion.
 
-* Controlled
-* Declarative
-* Encoder-specific
+**Entity-anchored bundling** prevents this by using the dependency parse to determine which semantic components *actually modify* which entities:
 
-Encoders decide:
+* Each entity gets its own **bundle** of associated attributes, affordances, and contexts
+* Attributes are linked to entities via adjectival modifier relationships in the parse tree
+* Affordances are linked via verb-argument relationships
+* Contexts are shared across all bundles (they apply to the record as a whole)
 
-* Which axes may be wildcarded
-* When wildcarding is meaningful
-* How many address variants are valid
+The result: 20-40 addresses per record instead of 60+, with each address reflecting a linguistically grounded relationship rather than an arbitrary combination.
 
-This keeps address growth bounded and intentional.
+This keeps address growth bounded by the **structure of the text**, not by combinatorial possibility.
 
 ---
 
@@ -281,4 +292,4 @@ If this model is respected, geometric retrieval works.
 
 If it is violated, NAM fails fast — and visibly.
 
-→ See also: [Geometric Retrieval](GEOMETRIC_RETREIVAL.md) | [Ingestion Model](INGESTION_MODEL.md) | [Query Model](QUERY_MODEL.md) | [Terminology](../PHILOSOPHY/TERMINOLOGY.md)
+→ See also: [Geometric Retrieval](GEOMETRIC_RETRIEVAL.md) | [Ingestion Model](INGESTION_MODEL.md) | [Query Model](QUERY_MODEL.md) | [Pipeline Architecture](PIPELINE_ARCHITECTURE.md) | [Terminology](../PHILOSOPHY/TERMINOLOGY.md)

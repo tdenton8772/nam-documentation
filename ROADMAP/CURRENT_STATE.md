@@ -67,6 +67,17 @@ The system is past prototype, past "does it work," and into "how well does it op
 
 > See: [Geometric Retrieval](../ARCHITECTURE/GEOMETRIC_RETRIEVAL.md)
 
+### Learned Byte-Code Coordinates (LCA)
+
+* A **character CNN + Residual Vector Quantizer** encodes axis values to fixed-width byte-code pairs
+* Trained on 15K classification labels with 100% codebook utilization
+* Codebook has geometric structure — semantically similar strings map to nearby codes
+* Deployed alongside NLP string coordinates (dual-write, A/B tested)
+* **Codebook neighborhood fan-out** at query time expands each axis's coarse code to include its k nearest codebook neighbors
+* Bridges between current exact-match retrieval and the long-term latent storage model
+
+> See: [Addressing Model](../ARCHITECTURE/ADDRESSING_MODEL.md)
+
 ### Geometric Retrieval with Progressive Fan-Out
 
 * Queries generate bounded sets of probes into semantic space
@@ -125,6 +136,7 @@ Today's NAM implementation includes:
 * **Hash-based entity resolution** with fuzzy-first matching, distributed shared store, and node-level caching
 * **Rule-based NLP pipeline** — deterministic tokenization, POS tagging, lemmatization, NER, dependency parsing (10,000+ parses/sec)
 * **Progressive fan-out query execution** with ontology hint reordering, satisfaction thresholds, and budget-bounded probing
+* **Learned byte-code coordinates (LCA)** — character CNN + RVQ encoder with codebook neighborhood fan-out at query time
 * **Object-storage-backed persistence** — S3-compatible durable storage with on-demand caching for fast cold starts
 * **Per-pod message bus architecture** — pod-local NATS for stage-to-stage communication, no cross-pod coordination for processing
 * **CAS-based lease coordination** — no external dependencies beyond the data service for distributed partition management

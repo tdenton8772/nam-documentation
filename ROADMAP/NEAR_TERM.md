@@ -105,6 +105,7 @@ Changes either preserve determinism or fail loudly.
 * **Hash-based entity resolution** — type-independent entity IDs prevent ingest/query alignment failures
 * **Fuzzy-first entity matching** — candidate key lookups as primary resolution path
 * **Ontology hardening** — eliminated "OTHER" catch-all; 26 canonical types with "concept" as broadest fallback
+* **LCA neighborhood fan-out** — codebook-aware k-nearest-neighbor expansion at query time. Each axis's coarse code is expanded to include k nearest codebook neighbors, probing semantically adjacent address regions. Bridges between exact-match retrieval and the long-term latent walk vision.
 
 **Remaining work includes:**
 
@@ -116,6 +117,10 @@ Changes either preserve determinism or fail loudly.
 
   * Merging near-identical fuzzy matches (entity minion system)
   * Broader surface form coverage and cross-document coreference
+* **LCA ingest-side fan-out**
+
+  * Write neighborhood addresses at ingest time (not just query time) for higher recall
+  * Extend LCA axes (temporal, geographic) with model retraining
 
 **Outcome:**
 Queries feel more robust while remaining explainable and deterministic.

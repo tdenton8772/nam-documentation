@@ -128,6 +128,32 @@ NAM's recovery model depends on what was lost:
 
 ---
 
+## Storage Maintenance
+
+### SST Accumulation
+
+The storage engine uses a Log-Structured Merge Tree (LSM). Writes go to an in-memory buffer (memtable), which is periodically flushed to immutable sorted data files (SSTs) on local disk and replicated to object storage.
+
+Over time, this creates a large number of small SSTs in object storage. Because the data service uses on-demand caching, local compaction only merges SSTs that have been fetched locally — SSTs from prior pod lifecycles remain unmerged on S3. This is a natural consequence of the on-demand model, but without maintenance the file count grows indefinitely.
+
+### Online S3 Compaction
+
+NAM includes an automated S3 compaction task that merges accumulated SSTs without taking the data service offline:
+
+1. **Flush** — the supervisor sends a flush command to the live data service, pushing any in-memory data to SSTs on S3. A timestamp is recorded marking the boundary between "old" and "new" data.
+
+2. **Compact** — a dedicated Kubernetes Job opens the database directly from S3 using eager-mirror mode (downloading all SSTs), runs a full merge compaction on every column family, and uploads the resulting compacted SSTs back to S3.
+
+3. **Orphan cleanup** — after compaction, the Job identifies SST files on S3 that are no longer referenced by the database manifest. Only files whose S3 `LastModified` timestamp is older than the pre-flush boundary are deleted. This age-based filter ensures that any SSTs written by the live data service during compaction are preserved.
+
+4. **Verify** — the supervisor confirms the data service remains healthy and item counts are unchanged.
+
+The data service stays live and serving traffic throughout this process. SSTs are immutable — new writes go to new memtables and new SSTs, never modifying existing files. This immutability property makes online compaction safe.
+
+S3 compaction is a manual task, triggered via the supervisor API (`POST /v1/admin/tasks/s3_compaction`) or the frontend dashboard. It is intentionally not auto-scheduled due to the resource cost of downloading and reprocessing all SSTs.
+
+---
+
 ## Partition Model
 
 Data is distributed across partitions (vbuckets) using consistent hashing:

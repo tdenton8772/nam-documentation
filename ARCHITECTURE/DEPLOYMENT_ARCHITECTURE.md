@@ -61,13 +61,32 @@ The data service uses a custom storage engine backed by S3-compatible object sto
 
 ### Supervisor (Deployment)
 
-A single-instance service that handles cluster lifecycle:
+A single-instance service that handles cluster lifecycle and automated maintenance:
 
 * Waits for the data service to become available
 * Creates storage structures (buckets) during bootstrap
 * Monitors cluster health on a recurring basis
 * Coordinates pipeline resets and data loading
 * Gates readiness for downstream services
+* Runs the **task framework** — a pluggable system for scheduled and manual maintenance tasks
+
+#### Task Framework
+
+The supervisor includes an auto-discovery task framework (inspired by Apache Pinot's Minion architecture) that manages operational tasks. Tasks are defined as Generator + Executor pairs and are automatically discovered at startup.
+
+| Task | Mode | Description |
+|------|------|-------------|
+| `compaction` | Scheduled | In-memory compaction on live data service (local SSTs only) |
+| `flush` | Scheduled | Periodic memtable flush to ensure data reaches S3 |
+| `s3_compaction` | Manual | Online S3 SST compaction — merges accumulated SSTs without downtime |
+| `s3_clear` | Manual | Wipes an S3 prefix (destructive, for development use) |
+| `wiki_load` | Manual | Loads Wikipedia test data via a Kubernetes Job |
+| `session_seed` | Manual | Pre-seeds session store caches |
+| `cluster_reset` | Manual | Orchestrates full pipeline reset (flush, clear, restart) |
+
+Tasks support cron scheduling, retry with exponential backoff, configurable timeouts, and execution history. All tasks are managed via the supervisor's REST API and can be triggered from the frontend dashboard.
+
+**S3 compaction** is the most significant maintenance task. Over time, the storage engine accumulates many small SST files in object storage (the result of periodic flushes). S3 compaction runs a dedicated Kubernetes Job that opens the database directly from S3, runs a full merge compaction, and deletes orphaned SST files — all while the data service remains live and serving traffic. An age-based safety filter ensures only SSTs written before the compaction began are eligible for cleanup.
 
 ### Frontend (Deployment, optional)
 
@@ -236,6 +255,20 @@ Environment-specific settings include:
 2. Data stores are flushed (except session store, which preserves entity caches)
 3. Ingest pods are restarted to re-establish leases
 4. Pipeline resumes from the beginning of the CDC stream
+
+### Maintenance
+
+The supervisor's task framework automates recurring maintenance:
+
+1. **Scheduled tasks** (compaction, flush) run on configurable intervals or cron expressions
+2. **Manual tasks** (S3 compaction, cluster reset) are triggered via the admin API or frontend
+3. Task execution is tracked with history, retry counts, and error reporting
+4. Environment variable overrides allow per-task tuning without redeployment
+
+Tasks can be monitored and triggered through:
+* `GET /v1/admin/tasks` — list all task types and their status
+* `POST /v1/admin/tasks/{type}` — trigger a manual task execution
+* `GET /v1/admin/tasks/{type}/history` — view execution history
 
 ### Recovery
 

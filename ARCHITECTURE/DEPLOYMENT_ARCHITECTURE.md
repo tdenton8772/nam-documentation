@@ -25,8 +25,9 @@ Each ingest pod is a self-contained processing unit that runs the full ingestion
 * **CDC adapter** — streams mutations from the data service
 * **NLP worker** — rule-based linguistic analysis
 * **Ontology worker** — semantic type classification
-* **Encoder head workers** — entity (multiple), attribute, affordance, context
-* **Addressing worker** — entity-anchored bundling and address construction
+* **Encoder head workers** — entity (6 workers), attribute (LMDB L2 cache), affordance (LMDB L2 cache), context
+* **Addressing workers (4)** — entity-anchored bundling, LCA encoding (ONNX Runtime), async WritePipeline
+* **LMDB sync workers** — attribute-lmdb-sync and affordance-lmdb-sync relay NATS writes to per-node LMDB
 * **Pod-local message bus** — stage-to-stage communication within the pod
 
 Ingest pods are stateful: each pod owns a set of data partitions via CAS-based leases. The StatefulSet ensures stable pod identities for lease management.
@@ -105,9 +106,15 @@ The frontend communicates exclusively through the query service API.
 
 A JWT-authenticating TCP proxy that enables direct key-value access for SDK clients. Runs on each node to provide low-latency access.
 
-### Entity Cache (DaemonSet, optional)
+### LMDB Cache DaemonSet (optional)
 
-A per-node shared memory cache for entity resolution. Reduces network round-trips for the most I/O-intensive operation in the pipeline.
+A per-node shared memory cache layer that populates three LMDB databases on tmpfs from the session store via DCP:
+
+* **Entity LMDB** (`/dev/shm/nam-entity-lmdb`) — surface form and candidate mappings (`surf::`/`cand::` keys)
+* **Attribute LMDB** (`/dev/shm/nam-attribute-lmdb`) — attribute category cache (`acat::` keys)
+* **Affordance LMDB** (`/dev/shm/nam-affordance-lmdb`) — affordance category cache (`vcat::` keys)
+
+Entity, attribute, and affordance workers mount their respective LMDB databases read-only for ~1-2μs zero-copy lookups, with fallback to the session store KV for L3 misses.
 
 ---
 

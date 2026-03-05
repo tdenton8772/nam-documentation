@@ -213,6 +213,8 @@ LCA:  x=lca:42:17   y=lca:201:55    z=lca:8:130
 
 Each axis value is encoded by a character CNN into a continuous vector, then quantized by a 2-stage Residual Vector Quantizer into a (coarse, fine) byte pair. The codebook has **geometric structure** — semantically similar strings map to nearby codes.
 
+The LCA encoder runs via **ONNX Runtime** by default, with ARM-optimized kernels (NEON/SVE) that eliminate the ~65ms per-forward-pass overhead of PyTorch on ARM platforms. A PyTorch fallback is available via `NAM_LCA_BACKEND=pytorch`.
+
 This enables:
 
 * **Fixed-width coordinates** — 2 bytes per axis instead of variable-length strings

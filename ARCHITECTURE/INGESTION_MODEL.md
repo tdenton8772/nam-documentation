@@ -226,7 +226,7 @@ The record payload itself is opaque to the addressing system and lives in the so
 * The record identifier
 * The pointer to the payload
 
-Storage writes during ingestion are **asynchronous and fire-and-forget**. The addressing stage queues writes to a background thread and never blocks the pipeline. Write batching happens naturally as the background thread accumulates and flushes in groups.
+Storage writes during ingestion are **asynchronous with feedback tracking**. The addressing stage submits write batches to a **WritePipeline** — a pool of 4 concurrent writer threads that overlap TCP round-trips. Each submission returns a future that tracks success, failure, or timeout. The addressing stage collects settled futures each iteration to log errors and track metrics, without blocking the pipeline.
 
 This separation is intentional and allows storage backends to be swapped without changing semantics.
 

@@ -46,7 +46,7 @@ A single ingest pod contains:
 | Attribute head | Property and descriptor extraction | 1 per pod |
 | Affordance head | Action and capability extraction | 1 per pod |
 | Context head | Situational and temporal context | 1 per pod |
-| Addressing | Entity-anchored bundling, address construction, storage writes | 1 per pod |
+| Addressing | Entity-anchored bundling, address construction, storage writes | 4 per pod |
 
 ### Why per-pod isolation?
 
@@ -90,7 +90,7 @@ Addressing (streaming join of all head outputs per record)
 * **Ontology runs before heads** — type classification informs entity resolution and address partitioning
 * **Heads fan out in parallel** — entity, attribute, affordance, and context extraction happen concurrently
 * **Addressing performs a streaming join** — it accumulates all head outputs for a given record before constructing addresses
-* **Storage writes are fire-and-forget** — the addressing stage queues writes to a background thread and never blocks the pipeline
+* **Storage writes are pipelined with feedback** — the addressing stage submits batches to a pool of writer threads and collects results (success, failure, timeout) via future callbacks
 
 ---
 
@@ -146,19 +146,20 @@ For each record, the addressing stage:
 1. **Accumulates** outputs from all encoder heads (entity, attribute, affordance, context)
 2. **Bundles** semantic components using dependency-parse-scoped entity anchoring
 3. **Constructs** deterministic addresses from each bundle
-4. **Writes** addresses to the storage layer via a background thread
+4. **Writes** addresses to the storage layer via the async WritePipeline
 
-### Fire-and-forget writes
+### Async WritePipeline
 
-Storage writes are queued to a background writer thread. The addressing stage never waits for a write acknowledgment before processing the next record.
+Storage writes are submitted to a **WritePipeline** — a pool of 4 concurrent writer threads (configurable via `NAM_ADDR_WRITE_WORKERS`). Each submission returns a **WriteFuture** that tracks the batch through completion, failure, or timeout.
 
-This means:
+At the top of each processing loop, the addressing stage calls `collect()` to retrieve settled futures. This provides:
 
-* Pipeline throughput is not gated by storage latency
-* Write batching happens naturally (the background thread accumulates writes and flushes in batches)
-* If the storage layer is temporarily slow, the queue absorbs the delay
+* **Pipelined throughput** — multiple batches in-flight simultaneously, overlapping TCP round-trips across writer threads
+* **Failure tracking** — write errors and timeouts are reported back via future callbacks, not silently dropped
+* **Timeout detection** — batches exceeding `NAM_ADDR_WRITE_TIMEOUT_S` (default 30s) are flagged without blocking the pipeline
+* **Backpressure** — queue capacity (`NAM_ADDR_WRITE_QUEUE_MAX`, default 100K) prevents unbounded memory growth
 
-Write failures are logged and tracked, but do not halt the pipeline.
+Write failures are logged and tracked via metrics, but do not halt the pipeline.
 
 ---
 

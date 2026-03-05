@@ -234,6 +234,7 @@ Environment-specific settings include:
 * External access (NodePort, LoadBalancer, Ingress)
 * S3 configuration (bucket, region, credentials)
 * Authentication secrets
+* Write throttling parameters (writer thread count, inter-batch delay, timeouts)
 
 ---
 

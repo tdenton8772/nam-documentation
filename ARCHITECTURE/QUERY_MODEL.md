@@ -185,6 +185,18 @@ These limits ensure that even highly ambiguous queries complete in bounded time.
 
 ---
 
+## Codebook Neighborhood Fan-Out
+
+Because coordinates are LCA byte codes (not raw strings), the query engine can exploit the **geometric structure of the codebook** to widen probes systematically.
+
+At startup, the query service precomputes a neighbor table: for each codebook entry, the k nearest entries by cosine distance. At query time, each axis's code is expanded to include its k nearest neighbors (default k=3), producing 4 candidate codes per axis (1 exact + 3 neighbors).
+
+The Cartesian product of these candidates creates a deterministic set of probe addresses — typically 64 probes per entity per ontology tier (4^3). This is not fuzzy matching; it is a structured geometric expansion with a fixed, repeatable order.
+
+This mechanism creates **deterministic ordering** of probe addresses: exact-match codes are probed first, then progressively more distant neighbors. The ordering is stable across identical queries.
+
+---
+
 ## Step 7: Controlled Widening (Not Guessing)
 
 NAM does not “broaden” queries by:

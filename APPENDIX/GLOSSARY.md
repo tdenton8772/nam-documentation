@@ -171,6 +171,16 @@ coordination without external dependencies.
 
 ---
 
+## LCA (Learned Codec for Addressing)
+
+A character-level neural encoder that maps string coordinate values to compact
+byte-code pairs (`lca:coarse:fine`). Provides geometric structure — semantically
+similar strings map to nearby codes — enabling neighborhood-based query fan-out.
+
+> See: **ARCHITECTURE/ADDRESSING_MODEL.md — Coordinate Encoding (LCA)**
+
+---
+
 ## Knowledge Accumulation
 
 The process by which NAM becomes more capable over time by accumulating

@@ -105,9 +105,15 @@ The frontend communicates exclusively through the query service API.
 
 A JWT-authenticating TCP proxy that enables direct key-value access for SDK clients. Runs on each node to provide low-latency access.
 
-### Entity Cache (DaemonSet, optional)
+### Entity Cache (DaemonSet)
 
-A per-node shared memory cache for entity resolution. Reduces network round-trips for the most I/O-intensive operation in the pipeline.
+A per-node LMDB-based cache that streams from the session store via CDC. It maintains three separate databases on shared memory (tmpfs):
+
+* **Entity LMDB** — surface form and candidate mappings for entity resolution
+* **Attribute LMDB** — attribute category lookups for the attribute head
+* **Affordance LMDB** — affordance category lookups for the affordance head
+
+The DaemonSet uses a dedicated lightweight image (`nam-lmdb`) that contains only the DCP adapter — no ML dependencies. All encoder head workers on the same node mount these databases read-only, converting network I/O to microsecond memory-mapped reads.
 
 ---
 
@@ -148,34 +154,38 @@ External Traffic
 Each ingest pod runs multiple containers in a sidecar pattern:
 
 ```
-+----------------------------------------------------------+
-|  Ingest Pod                                              |
-|                                                          |
-|  +----------+  +-----+  +----------+                    |
-|  | CDC      |  | NLP |  | Ontology |                    |
-|  | Adapter  |  |     |  |          |                    |
-|  +----+-----+  +--+--+  +----+-----+                    |
-|       |           |           |                          |
-|       v           v           v                          |
-|  +------------------------------------------+           |
-|  |         Pod-Local Message Bus             |           |
-|  +------------------------------------------+           |
-|       |           |           |          |               |
-|       v           v           v          v               |
-|  +--------+ +--------+ +--------+ +--------+            |
-|  | Entity | | Entity | | Attrib | | Afford |            |
-|  | Head 1 | | Head N | | Head   | | Head   |            |
-|  +--------+ +--------+ +--------+ +--------+            |
-|       |           |           |          |               |
-|       +-----+-----+-----+----+----------+               |
-|             |                                            |
-|             v                                            |
-|       +------------+                                     |
-|       | Addressing |  --> Background writes to           |
-|       | Worker     |      Data Service                   |
-|       +------------+                                     |
-|                                                          |
-+----------------------------------------------------------+
++----------------------------------------------------------------------+
+|  Ingest Pod                                                          |
+|                                                                      |
+|  +----------+  +-----+  +----------+                                |
+|  | CDC      |  | NLP |  | Ontology |                                |
+|  | Adapter  |  |     |  |          |                                |
+|  +----+-----+  +--+--+  +----+-----+                                |
+|       |           |           |                                      |
+|       v           v           v                                      |
+|  +--------------------------------------------------+               |
+|  |            Pod-Local Message Bus (NATS)           |               |
+|  +--------------------------------------------------+               |
+|       |           |           |          |          |                 |
+|       v           v           v          v          v                 |
+|  +--------+ +--------+ +--------+ +--------+ +---------+            |
+|  | Entity | | Entity | | Attrib | | Afford | | Context |            |
+|  | Head 1 | | Head N | | Head   | | Head   | | Head    |            |
+|  +--------+ +--------+ +--------+ +--------+ +---------+            |
+|       |           |           |          |          |                 |
+|       +-----+-----+-----+----+----------+----------+                |
+|             |                                                        |
+|             v                                                        |
+|       +------------+                                                 |
+|       | Addressing |  --> LCA encode (byte-code coordinates)         |
+|       | Worker(s)  |  --> Async WritePipeline to Data Service         |
+|       +------------+                                                 |
+|                                                                      |
+|  +------------------+  +--------------------+                        |
+|  | Attrib LMDB Sync |  | Afford LMDB Sync   |                       |
+|  +------------------+  +--------------------+                        |
+|                                                                      |
++----------------------------------------------------------------------+
 ```
 
 ---
@@ -188,7 +198,7 @@ Each ingest pod runs multiple containers in a sidecar pattern:
 |                   |
 |  +-------------+  |       +-----------+
 |  | Source Store |--+------>|    S3     |
-|  | (default)   |  |       | (durable) |
+|  | (main)      |  |       | (durable) |
 |  +-------------+  |       +-----------+
 |                   |            ^
 |  +-------------+  |            |

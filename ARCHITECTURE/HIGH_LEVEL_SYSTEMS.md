@@ -86,7 +86,7 @@ The NLP pipeline is:
 
 * **Rule-based** — no neural models, no learned weights, no GPU required
 * **Deterministic** — identical input always produces identical linguistic output
-* **Fast** — throughput exceeds 10,000 parses per second on a single core
+* **Fast** — throughput exceeds 13,000 parses per second on a single core
 * **Mandatory** — every record passes through NLP before reaching encoder heads
 
 The NLP pipeline exists as a separate component because:
@@ -193,6 +193,8 @@ Key idea:
 > Address construction is the *only* place where semantic meaning becomes spatial structure.
 
 Entity-anchored bundling ensures that addresses reflect the linguistic structure of the input, not a combinatorial explosion of all possible component combinations. This bounds address count per record to what the text actually expresses.
+
+Coordinate values are encoded through **LCA (Learned Codec for Addressing)** — a learned byte-code representation that provides geometric structure. Semantically similar strings map to nearby codes, enabling neighborhood-based fan-out at query time.
 
 Once an address is built, it is immutable.
 

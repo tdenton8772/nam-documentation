@@ -48,15 +48,14 @@ It only grows as new records are added.
 
 A **coordinate** is a single value along an address axis.
 
-For example:
+In production, coordinates are **LCA byte codes** — compact integer pairs produced by a learned codec:
 
-* `"outdoor"`
-* `"recreational"`
-* `"entity:tyler_denton"`
-* `"__null__"`
+* `"lca:42:17"` (an attribute coordinate)
+* `"lca:201:55"` (an affordance coordinate)
+* `"entity:tyler_denton"` (entity anchors remain string-based)
+* `"__null__"` (wildcard)
 
-Coordinates are symbolic, not numeric.
-Their meaning comes from **position**, not magnitude.
+Conceptually, coordinates are symbolic — their meaning comes from **position** in the codebook, not numeric magnitude. Semantically similar strings map to nearby codes, enabling geometric neighborhood queries.
 
 ---
 

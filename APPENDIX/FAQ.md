@@ -211,6 +211,9 @@ Recent hardening includes:
 - S3-backed persistent storage with on-demand caching for fast cold starts
 - Hash-based, type-independent entity identifiers for stable ingest/query alignment
 - Ontology system with 26 canonical types (no catch-all fallback)
+- LCA (Learned Codec for Addressing) — byte-code coordinates with codebook neighborhood fan-out
+- 3-level cache hierarchy (in-process, LMDB on tmpfs, data service KV) for entity/attribute/affordance resolution
+- ONNX Runtime inference for ARM-optimized LCA encoding
 - Automatic DCP health recovery and supervisor-driven pod restart
 
 It is not yet a fully managed platform.
@@ -282,6 +285,23 @@ NAM exists because:
 - Black boxes do not belong everywhere
 
 The system reflects those beliefs.
+
+---
+
+## How does NAM encode semantic coordinates?
+
+NAM uses **LCA (Learned Codec for Addressing)** to encode axis coordinates.
+
+Each string value (attribute, affordance, context) is passed through a character-level CNN to produce an embedding, then quantized via a two-stage residual vector quantization into a compact byte-code pair (`lca:coarse:fine`).
+
+This provides:
+- **Geometric structure** — semantically similar strings map to nearby codebook entries
+- **Compact keys** — byte codes are shorter than arbitrary strings
+- **Neighborhood fan-out** — at query time, each code is expanded to its k nearest codebook neighbors, enabling structured widening without fuzzy matching
+
+The codebook is trained offline and frozen at deployment. Entity anchors remain hash-based strings.
+
+> See: [Addressing Model](../ARCHITECTURE/ADDRESSING_MODEL.md)
 
 ---
 

@@ -122,8 +122,10 @@ Today's NAM implementation includes:
 * **Staged ingest pipeline** — CDC streaming, rule-based NLP, ontology classification, parallel encoder heads, entity-anchored addressing
 * **Five encoder heads** — entity (hash-based, fuzzy-first resolution), attribute (dependency-linked), affordance (verb extraction with synonym folding), context (sentence-level), ontology (26 canonical types)
 * **Entity-anchored address construction** via dependency-parse-scoped bundling (30-67% address reduction vs. naive Cartesian product)
+* **LCA (Learned Codec for Addressing)** — character CNN + residual vector quantization encodes coordinates as compact byte-code pairs; ONNX Runtime inference for ARM-optimized performance
+* **3-level cache hierarchy** — per-process dicts (L1), LMDB on tmpfs via DaemonSet (L2), data service KV (L3) for entity, attribute, and affordance resolution
 * **Hash-based entity resolution** with fuzzy-first matching, distributed shared store, and node-level caching
-* **Rule-based NLP pipeline** — deterministic tokenization, POS tagging, lemmatization, NER, dependency parsing (10,000+ parses/sec)
+* **Rule-based NLP pipeline** — deterministic tokenization, POS tagging, lemmatization, NER, dependency parsing (13,000+ parses/sec)
 * **Progressive fan-out query execution** with ontology hint reordering, satisfaction thresholds, and budget-bounded probing
 * **Object-storage-backed persistence** — S3-compatible durable storage with on-demand caching for fast cold starts
 * **Per-pod message bus architecture** — pod-local NATS for stage-to-stage communication, no cross-pod coordination for processing

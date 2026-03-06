@@ -80,6 +80,7 @@ Encoder Head Fan-Out (parallel)
    v
 Addressing (streaming join of all head outputs per record)
    |--- Entity-anchored bundling
+   |--- LCA encoding (learned byte-code coordinates)
    |--- Address construction
    |--- Background storage writes
 ```
@@ -89,7 +90,7 @@ Addressing (streaming join of all head outputs per record)
 * **NLP runs first** — all encoder heads receive the same parsed representation. NLP is never skipped.
 * **Ontology runs before heads** — type classification informs entity resolution and address partitioning
 * **Heads fan out in parallel** — entity, attribute, affordance, and context extraction happen concurrently
-* **Addressing performs a streaming join** — it accumulates all head outputs for a given record before constructing addresses
+* **Addressing performs a streaming join** — it accumulates all head outputs for a given record before constructing addresses. Coordinate values are encoded via LCA (learned byte codes) using cross-record batch encoding for efficiency
 * **Storage writes are fire-and-forget** — the addressing stage queues writes to a background thread and never blocks the pipeline
 
 ---
@@ -109,7 +110,7 @@ It performs:
 ### Why rule-based?
 
 * **Determinism** — identical input always produces identical parse output
-* **Speed** — throughput exceeds 10,000 parses per second on a single core
+* **Speed** — throughput exceeds 13,000 parses per second on a single core
 * **No model drift** — behavior does not change between deployments
 * **No GPU required** — runs on commodity CPU
 

@@ -25,8 +25,6 @@ This means:
 
 The system is past prototype, past "does it work," and into "how well does it operate in production."
 
-The first 500K-record corpus test has been completed successfully, validating end-to-end architecture from ingestion through addressing to geometric retrieval.
-
 ---
 
 ## Core System Capabilities (Today)
@@ -68,18 +66,6 @@ The first 500K-record corpus test has been completed successfully, validating en
 * Storage keys are the address space
 
 > See: [Geometric Retrieval](../ARCHITECTURE/GEOMETRIC_RETRIEVAL.md)
-
-### Learned Byte-Code Coordinates (LCA)
-
-* A **character CNN + Residual Vector Quantizer** encodes axis values to fixed-width byte-code pairs
-* Trained on 15K classification labels with 100% codebook utilization
-* Codebook has geometric structure — semantically similar strings map to nearby codes
-* **ONNX Runtime inference** — ARM-optimized kernels (NEON/SVE) eliminate PyTorch dispatch overhead; PyTorch fallback available
-* LCA is the default and sole addressing mode; string addressing is disabled by default
-* **Codebook neighborhood fan-out** at query time expands each axis's coarse code to include its k nearest codebook neighbors
-* Bridges between current exact-match retrieval and the long-term latent storage model
-
-> See: [Addressing Model](../ARCHITECTURE/ADDRESSING_MODEL.md)
 
 ### Geometric Retrieval with Progressive Fan-Out
 
@@ -139,9 +125,6 @@ Today's NAM implementation includes:
 * **Hash-based entity resolution** with fuzzy-first matching, distributed shared store, and node-level caching
 * **Rule-based NLP pipeline** — deterministic tokenization, POS tagging, lemmatization, NER, dependency parsing (10,000+ parses/sec)
 * **Progressive fan-out query execution** with ontology hint reordering, satisfaction thresholds, and budget-bounded probing
-* **Learned byte-code coordinates (LCA)** — character CNN + RVQ encoder with ONNX Runtime inference and codebook neighborhood fan-out at query time
-* **3-level cache hierarchy** — entity, attribute, and affordance stores each use L1 (in-process dict) → L2 (LMDB on tmpfs, per-node DaemonSet) → L3 (session bucket KV)
-* **Async WritePipeline** — 4 concurrent writer threads with future-based tracking (success/failure/timeout), replacing single blocking writer thread
 * **Object-storage-backed persistence** — S3-compatible durable storage with on-demand caching for fast cold starts
 * **Per-pod message bus architecture** — pod-local NATS for stage-to-stage communication, no cross-pod coordination for processing
 * **CAS-based lease coordination** — no external dependencies beyond the data service for distributed partition management
@@ -150,55 +133,6 @@ Today's NAM implementation includes:
 * **Offline calibration pipelines** and deterministic test harnesses
 
 These systems are not stubs — they are exercised regularly at scale.
-
----
-
-## First 500K Corpus Validation
-
-NAM has completed its first full-scale ingestion and retrieval test against 500K Wikipedia abstract records. Key results:
-
-### Ingestion at Scale
-
-* **500K records ingested** at 5,146 records/sec into the source store
-* **13.8M semantic addresses generated** (~27.6 addresses per record)
-* **~79% pipeline coverage** — 79% of records successfully completed the full pipeline from NLP through addressing
-* Data service remained stable under sustained write load with adaptive throttling
-
-### Write Throttling (Discovered and Resolved)
-
-At 500K scale, concurrent write contention from multiple addressing workers overwhelmed the data service. This was resolved by:
-
-* Reducing concurrent writer threads from 8 (4 per pod × 2 pods) to 4 (2 per pod × 2 pods)
-* Adding inter-batch delays to smooth write bursts
-* Extending write timeouts for large APPEND operations on high-item-count partitions
-* This is **tuning, not a structural limitation** — the WritePipeline architecture supports any concurrency level; throttling protects the single data service node
-
-### Geometric Retrieval Validated
-
-Queries against the 500K corpus confirmed:
-
-* **Multi-axis decomposition works** — entity hash + attribute/affordance/context LCA codes produce distinct, inspectable addresses
-* **Affordance detection differentiates intent** — "who discovered penicillin" vs "what was discovered" route through different affordance coordinates
-* **Zero-keyword-overlap retrieval works** — "ancient Greek philosophy" retrieves Metempsychosis (transmigration of souls) with no shared terms
-* **Conceptual category queries return relevant results** — geographic, scientific, and cultural queries retrieve topically appropriate records
-
-### What This Proves
-
-The first 500K build validates that NAM's core architectural claims hold at meaningful scale:
-
-* Deterministic ingestion produces consistent, reproducible addresses
-* Entity-anchored bundling prevents combinatorial explosion (~27.6 addresses/record, not thousands)
-* LCA byte-code coordinates are functional — encoding, storage, and retrieval all work end-to-end
-* The system is operationally stable through a real corpus (not just test fixtures)
-
-### What Remains
-
-This is the first build. Precision tuning is the next phase:
-
-* **Codebook training** — current codebook initialization is generic; domain-specific training will improve code granularity and reduce collisions
-* **NLP head sharpness** — rule-based extraction is fast but coarse; improving discrimination between similar but distinct concepts
-* **Coverage gap investigation** — understanding why ~21% of records don't complete addressing
-* **Per-query fan-out control** — exposing codebook neighborhood expansion as a query-time parameter for proper A/B testing
 
 → See: [Pipeline Architecture](../ARCHITECTURE/PIPELINE_ARCHITECTURE.md) | [Data Persistence](../ARCHITECTURE/DATA_PERSISTENCE.md)
 

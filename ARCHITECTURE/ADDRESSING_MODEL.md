@@ -200,48 +200,6 @@ This keeps address growth bounded by the **structure of the text**, not by combi
 
 ---
 
-## Learned Byte-Code Coordinates (LCA)
-
-In addition to NLP string coordinates, NAM supports **learned byte-code coordinates** via the LCA (Learned Codec for Addressing) encoder.
-
-LCA replaces variable-length string axis values with a pair of deterministic bytes:
-
-```
-NLP:  x=red         y=govern        z=modern
-LCA:  x=lca:42:17   y=lca:201:55    z=lca:8:130
-```
-
-Each axis value is encoded by a character CNN into a continuous vector, then quantized by a 2-stage Residual Vector Quantizer into a (coarse, fine) byte pair. The codebook has **geometric structure** — semantically similar strings map to nearby codes.
-
-The LCA encoder runs via **ONNX Runtime** by default, with ARM-optimized kernels (NEON/SVE) that eliminate the ~65ms per-forward-pass overhead of PyTorch on ARM platforms. A PyTorch fallback is available via `NAM_LCA_BACKEND=pytorch`.
-
-This enables:
-
-* **Fixed-width coordinates** — 2 bytes per axis instead of variable-length strings
-* **Semantic neighborhoods** — nearby codebook entries represent related meanings
-* **Bounded vocabulary** — 256 x 256 = 65,536 possible code pairs per axis
-
-LCA coordinates use the same partition key structure as string coordinates. The key format is compatible and distinguishable:
-
-```
-_default_|1.0|object|abc123|lca:42:17|lca:201:55|lca:8:130
-```
-
-### Codebook Neighborhood Fan-Out
-
-Because the codebook has geometric structure, LCA enables a form of **structured query widening** that string coordinates cannot support.
-
-At query time, each axis's coarse code can be expanded to include its k nearest codebook neighbors (by cosine distance on the L2-normalized unit sphere). With k=3, each axis has 4 candidate codes (1 exact + 3 neighbors), producing up to 4^3 = 64 probes per entity — matching the existing planning budget.
-
-This is distinct from wildcard widening (`__null__`):
-
-* `__null__` means "any value along this axis" — a geometric plane
-* Codebook neighbors mean "semantically similar values along this axis" — a geometric neighborhood
-
-Fan-out bridges between exact-match retrieval (point probes) and the long-term vision of continuous latent space traversal.
-
----
-
 ## Query-Time Address Construction
 
 At query time:

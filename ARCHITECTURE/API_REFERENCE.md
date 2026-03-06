@@ -307,7 +307,7 @@ Returns aggregated system health from multiple sources.
 {
   "timestamp": "2026-02-27T12:00:00Z",
   "buckets": {
-    "default": { "item_count": 1000, "status": "healthy" },
+    "main": { "item_count": 1000, "status": "healthy" },
     "nam": { "item_count": 50000, "status": "healthy" }
   },
   "dcp": {
@@ -367,7 +367,7 @@ Resets DCP checkpoints and pipeline counters. Optionally targets a specific sour
 **Request body (optional):**
 ```json
 {
-  "bucket": "default"
+  "bucket": "main"
 }
 ```
 
@@ -401,7 +401,7 @@ Lists document keys in a bucket. Uses CDC-based key scanning.
 **Response:**
 ```json
 {
-  "bucket": "default",
+  "bucket": "main",
   "keys": ["wiki::Alabama", "wiki::Anarchism", ...],
   "count": 100,
   "total": 1000
@@ -419,7 +419,7 @@ Retrieves a single document by key.
 **Response:**
 ```json
 {
-  "bucket": "default",
+  "bucket": "main",
   "key": "wiki::Alabama",
   "value": { ... },
   "cas": 12345678
@@ -462,7 +462,7 @@ GET /v1/admin/xdcr/replications
 POST /v1/admin/xdcr/replications
 ```
 
-Replication is supported for `default` (source data) and `session` (entity caches) buckets only.
+Replication is supported for `main` (source data) and `session` (entity caches) buckets only.
 
 #### Delete Replication
 
@@ -533,7 +533,7 @@ The KV proxy is a TCP service (not HTTP). Connection flow:
 ### VBucket Map
 
 ```
-GET /v1/kv/map?bucket=default
+GET /v1/kv/map?bucket=main
 ```
 
 Returns the vbucket map for the KV proxy, with addresses translated for external access. This is used by SDK clients to determine which partition a key maps to.

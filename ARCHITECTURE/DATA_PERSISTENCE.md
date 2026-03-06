@@ -29,7 +29,7 @@ NAM uses a distributed key-value store as its persistence layer. Data is organiz
 | Source store | Raw records (documents, articles, events) | Persistent, S3-backed |
 | Address store | Semantic addresses pointing to source records | Persistent, S3-backed |
 | Coordination store | Leases, checkpoints, pipeline counters | Ephemeral (in-memory) |
-| Session store | Entity, attribute, affordance, and context caches; backed by per-node LMDB L2 caches on tmpfs | Persistent, acts as warm cache |
+| Session store | Entity, attribute, affordance, and context caches | Persistent, acts as warm cache |
 
 ### Source store
 

@@ -199,7 +199,6 @@ Widening occurs through structured mechanisms:
 * **Ontology tier expansion** — when a tier is exhausted without satisfaction, the next tier is probed
 * **Hint-prioritized ordering** — tiers containing ontologies observed by the bundler are probed before others
 * **Explicit wildcard axes** — `__null__` coordinates widen the geometric region
-* **Codebook neighborhood expansion** — when using LCA byte-code coordinates, each axis's coarse code is expanded to include its k nearest codebook neighbors (by cosine distance). This probes semantically adjacent regions of the address space without abandoning the axis entirely
 
 Every widening step is explainable: the system can report which tier it probed, at what specificity, and whether satisfaction was reached.
 

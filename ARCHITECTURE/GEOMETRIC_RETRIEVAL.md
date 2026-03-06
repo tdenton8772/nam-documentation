@@ -271,22 +271,6 @@ Each step is:
 
 This is how NAM preserves control without losing recall.
 
-### Codebook Neighborhood Probing
-
-When using learned byte-code coordinates (LCA), NAM supports an additional form of widening: **codebook neighborhood probing**.
-
-Instead of widening from a point to a line (dropping an axis entirely), the system probes **neighboring points** — addresses whose coarse codes are nearest in the codebook's learned geometry.
-
-```
-exact point → neighborhood points → line → plane → cube
-```
-
-This is a finer-grained widening step than `__null__` wildcarding. Where a line probe asks “anything along this axis,” a neighborhood probe asks “similar values along this axis.”
-
-The neighborhood is determined by the codebook's internal structure, which is learned during training. Similar strings map to nearby codebook entries, so neighborhood probes reach semantically adjacent meanings.
-
-Neighborhood probing is bounded: with k=3 neighbors per axis, the worst case is 4^3 = 64 probes per entity, matching the existing planning budget.
-
 ---
 
 ## Why Ingest and Query Must Align

@@ -7,8 +7,8 @@ It is the act of **projecting raw information into a deterministic semantic spac
 
 Ingestion and query are symmetric operations. Both use the same encoder heads, the same addressing rules, and the same geometric model. The only difference is **direction**:
 
-* Ingestion **writes** addresses
-* Query **probes** addresses
+* Ingestion **writes** addresses (as rotated covering index keys)
+* Query **scans** addresses (via prefix scans on the covering index)
 
 This symmetry is what makes geometric retrieval possible.
 

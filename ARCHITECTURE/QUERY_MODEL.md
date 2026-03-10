@@ -1,11 +1,11 @@
 # The NAM Query Model
 
-*How questions become probes*
+*How questions become geometric scans*
 
-This document explains how a natural-language question is transformed into a deterministic set of storage probes in NAM.
+This document explains how a natural-language question is transformed into a deterministic set of storage operations in NAM.
 
 NAM does not “search” in the traditional sense.
-It **plans** a query and **executes probes** against known semantic locations.
+It **plans** a query and **executes prefix scans** against known regions of semantic space.
 
 ---
 
@@ -29,8 +29,8 @@ At a conceptual level, every query follows this flow:
 1. **Parse the question**
 2. **Encode meaning using the same heads as ingest**
 3. **Determine query mode**
-4. **Plan address probes**
-5. **Execute probes**
+4. **Plan prefix scans on the covering index**
+5. **Execute scans**
 6. **Return records (unranked or lightly ordered)**
 
 No step is optional.
@@ -91,9 +91,9 @@ Based on encoder output, the planner selects one of two **query modes**:
 
 Used when no specific affordance verb is recognized in the query. The system explores broadly across ontology tiers.
 
-* Ontology tiers are probed in a predefined order, with tiers containing the bundler's ontology **hints** probed first
+* Ontology tiers are scanned in a predefined order, with tiers containing the bundler's ontology **hints** scanned first
 * Each tier groups related ontologies (e.g., Tier 1: person, object, location, concept; Tier 2: time, event, action; etc.)
-* The system probes progressively from most-specific addresses to least-specific within each tier
+* The system scans progressively from most-specific addresses to least-specific within each tier
 
 ### Affordance Mode
 
@@ -123,7 +123,7 @@ Important rules:
 * Over-activation is safer than exclusion
 * Ontology selection never filters records directly
 
-Ontologies only define *where probes may be constructed*.
+Ontologies only define *where scans may be constructed*.
 
 ---
 
@@ -136,48 +136,46 @@ The planner:
 * Takes ontology + entity + axis signals from encoding
 * Captures **ontology hints** from the bundler (what types the bundler actually observed)
 * Reorders ontology tiers so that hinted tiers are probed first
-* Constructs a **finite, budget-bounded set of concrete addresses**
+* Constructs a **finite, budget-bounded set of prefix scan queries**
 * Orders them from most specific to most general within each tier
 
-Each planned address is a valid KV lookup.
+Each planned query selects the optimal rotation of the covering index where the specified axes form a contiguous key prefix, then constructs a prefix scan:
 
-Examples:
-
-* Point probes (all axes populated: entity + attribute + affordance + context)
-* Line probes (one axis wildcarded)
-* Plane probes (two axes wildcarded)
-* Volume probes (only entity specified, all other axes wildcarded)
+* **Point scan** (all axes specified) — prefix covers exact coordinates
+* **Line scan** (two axes specified) — prefix covers two coordinates, scans across the third
+* **Plane scan** (one axis specified) — prefix covers one coordinate, scans across two others
+* **Volume scan** (no axes specified, partition only) — scans entire partition
 
 No “contains”, no “similar to”, no post-filtering.
 
-Planning is **budget-aware**: the total number of planned addresses is capped to prevent unbounded exploration.
+Planning is **budget-aware**: the total number of planned scans is capped to prevent unbounded exploration.
 
 ---
 
-## Step 6: Probe Execution (Progressive Fan-Out)
+## Step 6: Scan Execution (Progressive Fan-Out)
 
-Each planned address becomes a **direct storage probe**, but probes are executed using a **progressive fan-out** strategy:
+Each planned prefix scan query is executed against the storage layer using a **progressive fan-out** strategy:
 
-1. Within each ontology tier, addresses are sorted by **specificity** (how many axes are populated)
-2. The most specific addresses are probed first (specificity 3: all axes set)
+1. Within each ontology tier, scans are sorted by **specificity** (how many axes are specified in the prefix)
+2. The most specific scans are executed first (specificity 3: all axes in prefix)
 3. Then less specific (specificity 2, 1, 0)
 4. After completing a tier, if enough matches have been found (above a **satisfaction threshold**), remaining tiers are skipped
 
-For each probe:
+For each scan:
 
-* A partition key is computed
-* The storage backend is queried directly
-* Matching records are collected and deduplicated
+* The optimal rotation is selected (where specified axes form a key prefix)
+* A prefix scan retrieves all matching records in a single storage operation
+* Results are collected and deduplicated across scans
 
 ### Early termination
 
-Progressive fan-out enables **early termination**: if a tier yields sufficient results, the system stops probing rather than exhaustively scanning all planned addresses. This bounds query latency while preserving determinism — the same query with the same data always terminates at the same point.
+Progressive fan-out enables **early termination**: if a tier yields sufficient results, the system stops scanning rather than exhaustively exploring all planned regions. This bounds query latency while preserving determinism — the same query with the same data always terminates at the same point.
 
 ### Budget limits
 
 Execution is bounded by:
 
-* A maximum number of address probes
+* A maximum number of prefix scans
 * A maximum number of document fetches
 * A satisfaction threshold per tier
 
@@ -187,13 +185,13 @@ These limits ensure that even highly ambiguous queries complete in bounded time.
 
 ## Codebook Neighborhood Fan-Out
 
-Because coordinates are LCA byte codes (not raw strings), the query engine can exploit the **geometric structure of the codebook** to widen probes systematically.
+Because coordinates are LCA byte codes (not raw strings), the query engine can exploit the **geometric structure of the codebook** to widen scans systematically.
 
 At startup, the query service precomputes a neighbor table: for each codebook entry, the k nearest entries by cosine distance. At query time, each axis's code is expanded to include its k nearest neighbors (default k=3), producing 4 candidate codes per axis (1 exact + 3 neighbors).
 
-The Cartesian product of these candidates creates a deterministic set of probe addresses — typically 64 probes per entity per ontology tier (4^3). This is not fuzzy matching; it is a structured geometric expansion with a fixed, repeatable order.
+The Cartesian product of these candidates creates a deterministic set of address coordinates. Each unique combination of specified axes then maps to a single prefix scan on the appropriate rotation of the covering index.
 
-This mechanism creates **deterministic ordering** of probe addresses: exact-match codes are probed first, then progressively more distant neighbors. The ordering is stable across identical queries.
+This mechanism creates **deterministic ordering** of scan priorities: exact-match codes are scanned first, then progressively more distant neighbors. The ordering is stable across identical queries. Combined with the covering index, neighborhood expansion adds recall without multiplying the number of storage operations — each unique prefix is scanned once regardless of how many neighbor combinations map to it.
 
 ---
 
@@ -207,12 +205,12 @@ NAM does not “broaden” queries by:
 
 Widening occurs through structured mechanisms:
 
-* **Specificity descent** — within a tier, probes progress from fully-specified (point) to partially-specified (line, plane)
-* **Ontology tier expansion** — when a tier is exhausted without satisfaction, the next tier is probed
-* **Hint-prioritized ordering** — tiers containing ontologies observed by the bundler are probed before others
-* **Explicit wildcard axes** — `__null__` coordinates widen the geometric region
+* **Specificity descent** — within a tier, scans progress from fully-specified (all axes in prefix) to partially-specified (fewer axes, broader scan region)
+* **Ontology tier expansion** — when a tier is exhausted without satisfaction, the next tier is scanned
+* **Hint-prioritized ordering** — tiers containing ontologies observed by the bundler are scanned before others
+* **Rotation selection** — the covering index guarantees that any combination of specified axes can be efficiently scanned via the appropriate rotation
 
-Every widening step is explainable: the system can report which tier it probed, at what specificity, and whether satisfaction was reached.
+Every widening step is explainable: the system can report which tier it scanned, at what specificity, and whether satisfaction was reached.
 
 ---
 
@@ -220,12 +218,12 @@ Every widening step is explainable: the system can report which tier it probed, 
 
 NAM returns:
 
-* Records that exist at probed addresses
+* Records that exist at scanned address regions
 
 Ordering (if any) reflects:
 
 * Address specificity
-* Probe order
+* Scan order
 * Retrieval time
 
 NAM does **not** compute semantic similarity scores at query time.
@@ -270,7 +268,7 @@ NAM does not mask this with fallback heuristics.
 NAM:
 
 * Plans queries
-* Executes probes
+* Executes scans
 * Returns records
 
 NAM does **not**:
@@ -288,11 +286,11 @@ This separation is what makes NAM composable.
 
 ## Summary
 
-* Queries are transformed into address probes
+* Queries are transformed into prefix scans on a covering index
 * The same encoders are used for ingest and query
 * Planning is deterministic and bounded
 * Widening is explicit, not heuristic
-* Retrieval is exact-key based
+* Retrieval uses structured prefix scans, not similarity
 
 A NAM query is not a search.
 It is a **geometric exploration of semantic space**.

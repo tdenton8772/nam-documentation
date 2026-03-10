@@ -262,7 +262,7 @@ It:
 
 * Detects affordances (what kind of question is being asked)
 * Selects ontology tiers
-* Determines which address families to probe
+* Determines which regions of address space to scan
 * Controls widening and fallback behavior
 
 The planner does **not**:
@@ -273,9 +273,10 @@ The planner does **not**:
 
 The planner also:
 
+* Selects the optimal covering index rotation for each set of specified axes
 * Captures **ontology hints** from the bundler (what types were observed in the query text)
-* Reorders ontology tiers so hinted tiers are probed first
-* Caps total planned addresses to a configurable budget
+* Reorders ontology tiers so hinted tiers are scanned first
+* Caps total planned scans to a configurable budget
 
 Planning is structural, not statistical.
 
@@ -287,17 +288,17 @@ The execution engine carries out the plan.
 
 It:
 
-* Probes the storage layer at specific addresses
-* Navigates points, lines, and planes in address space
+* Scans the storage layer using prefix scans on the covering index
+* Navigates points, lines, planes, and volumes in address space
 * Deduplicates records
 * Returns stable, deterministic results
 
 Execution uses **progressive fan-out**:
 
-* Addresses are probed in specificity order (most specific first)
-* Ontology tiers are probed in hint-prioritized order
+* Scans are executed in specificity order (most specific first)
+* Ontology tiers are scanned in hint-prioritized order
 * If a tier yields enough matches (above a satisfaction threshold), remaining tiers are skipped
-* Total probes and fetches are budget-capped
+* Total scans and fetches are budget-capped
 
 Execution is:
 

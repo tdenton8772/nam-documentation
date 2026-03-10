@@ -115,7 +115,7 @@ This is how alignment is preserved.
 
 ## The Meaning of `__null__`
 
-`__null__` is a **semantic wildcard**, not missing data.
+`__null__` is a **semantic signal**, not missing data.
 
 It means:
 
@@ -124,7 +124,7 @@ It means:
 This distinction is critical.
 
 * Missing data would be an error
-* `__null__` is an explicit geometric choice
+* `__null__` is an explicit declaration of non-specificity
 
 Every axis **must always have a value**, and that value is either:
 
@@ -132,6 +132,8 @@ Every axis **must always have a value**, and that value is either:
 * Or `__null__`
 
 There is no third state.
+
+At ingest time, `__null__` values participate in the covering index like any other coordinate value. At query time, axes with `__null__` are treated as unspecified — the query planner omits them from the prefix, causing the prefix scan to match across all values along that axis. This is how geometric widening (points → lines → planes → volumes) works without storing explicit wildcard copies.
 
 ---
 
@@ -163,32 +165,28 @@ Without this rule:
 
 ## Ingest-Time Address Expansion
 
-At ingest time, NAM may generate **multiple addresses per record**.
+At ingest time, NAM generates **multiple addresses per record**.
 
 This is intentional.
 
-For example, a record that expresses:
+For each base address (a unique combination of entity, attribute, affordance, and context), NAM stores a small number of **rotated copies** — cyclic permutations of the coordinate axes. These rotations form a **covering index** that enables any single-axis or multi-axis query to be answered with a single prefix scan, without requiring explicit wildcard copies.
 
-* A specific activity
-* In a specific place
-
-May generate:
-
-* A fully specified address (point)
-* One or more partially specified addresses (lines / planes)
+For N coordinate axes, each base address produces exactly N rotated keys. With 3 axes, that's 3 rotations per base address.
 
 This does **not** mean duplication of meaning.
-It means **multiple geometric representations of the same fact**.
+It means **multiple key orderings of the same semantic fact**, arranged so that any query axis can appear first in a key prefix.
 
-The record remains singular. The addresses are plural.
+The record remains singular. The rotated keys enable efficient retrieval from any geometric angle.
 
 ---
 
 ## Why This Does Not Explode Combinatorially
 
-NAM does **not** generate all possible axis combinations.
+NAM controls address growth through two mechanisms:
 
-Without bundling, a record with 5 entities, 3 attributes, 2 affordances, and 2 contexts would produce 60 addresses (5 x 3 x 2 x 2). This is a combinatorial explosion.
+### Entity-Anchored Bundling
+
+Without bundling, a record with 5 entities, 3 attributes, 2 affordances, and 2 contexts would produce 60 base addresses (5 x 3 x 2 x 2). This is a combinatorial explosion.
 
 **Entity-anchored bundling** prevents this by using the dependency parse to determine which semantic components *actually modify* which entities:
 
@@ -197,9 +195,13 @@ Without bundling, a record with 5 entities, 3 attributes, 2 affordances, and 2 c
 * Affordances are linked via verb-argument relationships
 * Contexts are shared across all bundles (they apply to the record as a whole)
 
-The result: 20-40 addresses per record instead of 60+, with each address reflecting a linguistically grounded relationship rather than an arbitrary combination.
+### Covering Index (Rotations, Not Wildcards)
 
-This keeps address growth bounded by the **structure of the text**, not by combinatorial possibility.
+The older approach to geometric retrieval required storing wildcard copies — every combination of specified and wildcarded axes — to enable partial-axis queries on a pure point-lookup KV store. For N axes, this produced 2^N copies per base address (8x for 3 axes).
+
+The current approach uses a **covering index**: N cyclic rotations per base address. For 3 axes, that's 3 rotations instead of 8 wildcard copies. Queries use prefix scans on the rotation where the specified axes form a key prefix.
+
+The result: approximately 20-40 addresses per record, with each address reflecting a linguistically grounded relationship and an efficient key ordering. Address growth is bounded by the **structure of the text** times the number of axes, not by 2^N combinatorial explosion.
 
 ---
 
@@ -232,13 +234,16 @@ At query time:
 
 * The same encoders run in query mode
 * The same axes are used
-* The same wildcard rules apply
+* The same coordinate encoding applies
 
 The planner then:
 
-* Builds a **set of concrete addresses**
-* Ordered by specificity
-* Probed deterministically
+* Identifies which axes are specified (non-null) in the query
+* Selects the optimal rotation where those axes form a key prefix
+* Constructs a **prefix scan** that covers all matching records
+* Orders scans by specificity (most axes specified first)
+
+A single prefix scan replaces what was previously a set of individual point lookups. The covering index guarantees that the correct rotation exists for any combination of specified axes.
 
 There is no fuzzy matching at storage time.
 
@@ -291,13 +296,13 @@ Retrieval:
 
 If:
 
-* Ingest emits concrete axis values
-* Query emits `__null__` for the same axis
-* And the ingest did not emit wildcard addresses
+* The covering index was not built at ingest (no rotated keys exist)
+* The query uses a different rotation scheme than ingest
+* The coordinate encoding differs between ingest and query
 
 Then:
 
-* Retrieval returns nothing
+* Prefix scans return nothing
 * Correctly
 * Predictably
 
@@ -310,9 +315,9 @@ It is a signal that the addressing contract is broken.
 
 * Addresses are deterministic semantic coordinates
 * Axes are defined, not discovered
-* `__null__` is a wildcard, not absence
-* Every address is fully populated
-* Ingest and query must align exactly
+* `__null__` signals non-specificity, enabling geometric widening via prefix scans
+* Every address is stored as N cyclic rotations (covering index)
+* Ingest and query must align exactly — same encoding, same rotations
 
 If this model is respected, geometric retrieval works.
 

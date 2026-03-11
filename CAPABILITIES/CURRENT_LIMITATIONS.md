@@ -120,9 +120,11 @@ This makes evaluation more rigorous — but also more demanding.
 
 ## 7. Operational Maturity Is Progressing
 
-Deployment is packaged and repeatable, with automated lifecycle management, authenticated access, network isolation, transport security, and S3-backed persistent storage. Current operational constraints include:
+Deployment is packaged and repeatable, with automated lifecycle management, authenticated access, network isolation, transport security, and S3-backed persistent storage. A web-based dashboard provides system health monitoring, encoder head status, pipeline metrics with time-series graphs, and query interfaces.
 
-* limited production monitoring dashboards and alerting integrations
+Current operational constraints include:
+
+* limited external alerting integrations (metrics are visible but not yet exported to external monitoring systems)
 * manual artifact promotion
 * no turnkey multi-tenant isolation
 * encryption key rotation is manual
@@ -160,6 +162,9 @@ Despite these limitations, today’s NAM implementation already supports:
 * deterministic ingestion and addressing via a staged, rule-based pipeline
 * hash-based entity resolution with fuzzy-first matching
 * progressive fan-out query execution with early termination
+* covering index (N cyclic rotations per base address) enabling single-prefix-scan retrieval for any axis combination
+* LCA byte-code coordinate encoding with codebook neighborhood fan-out
+* entity codebook with rejection classes (~40 addresses/record, down from ~110)
 * ontology-aware retrieval with 26 canonical types (no catch-all fallback)
 * S3-backed persistent storage with on-demand caching
 * CDC-based continuous ingestion with automatic lease coordination

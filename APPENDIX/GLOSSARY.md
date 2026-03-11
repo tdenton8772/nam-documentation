@@ -118,7 +118,7 @@ Records are immutable once ingested.
 
 A reserved sentinel value (`lca:0:0`) assigned to an address axis when the encoder head produces no value for that axis. Non-specific coordinates are first-class geometric constructs — they mean "not constrained along this axis," enabling records to occupy lines, planes, or volumes in semantic space.
 
-→ See: **PHILOSOPHY/TERMINOLOGY.md — Non-Specific Coordinate**
+→ See: **PHILOSOPHY/TERMINOLOGY.md — Non-Specific Coordinate** | **ARCHITECTURE/GEOMETRIC_RETRIEVAL.md — Why Non-Specific Axes Are Not Missing**
 
 ---
 

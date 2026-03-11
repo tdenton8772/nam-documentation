@@ -24,7 +24,7 @@ It is about **turning what already exists into something people can reliably run
 
   * Metrics export to external monitoring systems
   * Alerting on lease failures, partition lag, and entity store drift
-  * Dashboards for ingest throughput, query latency, and cluster health
+  * A web-based dashboard with system health, pipeline metrics, encoder head monitoring, and time-series graphs is operational; external alerting integrations are not yet connected
 * **Configuration hardening**
 
   * Explicit separation of runtime config vs training artifacts
@@ -105,6 +105,11 @@ Changes either preserve determinism or fail loudly.
 * **Hash-based entity resolution** — type-independent entity IDs prevent ingest/query alignment failures
 * **Fuzzy-first entity matching** — candidate key lookups as primary resolution path
 * **Ontology hardening** — eliminated "OTHER" catch-all; 26 canonical types with "concept" as broadest fallback
+* **Covering index** — N cyclic rotations per base address replace 2^N null-expansion copies; any axis combination is queryable via a single prefix scan on the appropriate rotation
+* **LCA (Learned Codec for Addressing)** — character CNN + residual vector quantization encodes coordinates as compact byte-code pairs; codebook neighborhood fan-out enables structured query widening
+* **Entity codebook with rejection classes** — VQ classifier (k=32) with rejection clusters for generic nouns and low-salience candidates; compound filter applies rule-based checks before rejection. Entity count per record dropped from ~14-25 to ~3-5
+* **Bundler scoping fix** — eliminated remainder broadcasting (unlinked attributes/affordances no longer broadcast to all entity bundles) and scoped NER-derived contexts to entities that share a sentence. Address count per record dropped from ~110 to ~40
+* **Codebook neighborhood fan-out** — precomputed neighbor tables enable deterministic, structured query widening at the codebook level
 
 **Remaining work includes:**
 

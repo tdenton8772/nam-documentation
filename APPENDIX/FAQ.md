@@ -208,6 +208,9 @@ It is suitable for:
 Packaged deployment, automated lifecycle management, authenticated access, network isolation, and transport security are operational. The core pipeline (rule-based NLP, entity-anchored bundling, hash-based entity resolution, progressive fan-out queries) is exercised against real corpora.
 
 Recent hardening includes:
+- **Covering index** — N cyclic rotations per base address replace 2^N null-expansion copies; any axis combination is queryable via a single prefix scan
+- **Entity codebook with rejection classes** — VQ classifier filters generic nouns and low-salience candidates, reducing entity count per record from ~14-25 to ~3-5
+- **Bundler scoping** — entity-anchored bundling with dependency-parse-scoped attribute/affordance linking and sentence-scoped context assignment (~40 addresses/record)
 - S3-backed persistent storage with on-demand caching for fast cold starts
 - Hash-based, type-independent entity identifiers for stable ingest/query alignment
 - Ontology system with 26 canonical types (no catch-all fallback)

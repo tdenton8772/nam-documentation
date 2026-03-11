@@ -130,15 +130,15 @@ Precision is handled at query time through geometric narrowing.
 
 ---
 
-## Axes and `__null__`
+## Axes and Non-Specific Coordinates
 
 Each address in NAM exists in a multi-axis space (for example, X, Y, Z).
 
 When an encoder head cannot confidently populate an axis:
 
-* The axis is explicitly set to `__null__`
+* The axis receives a **reserved sentinel** (`lca:0:0`) — a dedicated codebook entry meaning “non-specific along this axis”
 
-`__null__` does **not** mean “unknown” or “missing”.
+A non-specific coordinate does **not** mean “unknown” or “missing”.
 
 It means:
 
@@ -147,15 +147,15 @@ It means:
 This allows records to exist as:
 
 * Points (fully specified)
-* Lines (one unconstrained axis)
-* Planes (multiple unconstrained axes)
+* Lines (one non-specific axis)
+* Planes (multiple non-specific axes)
 * Volumes (highly general meaning)
 
 This is essential for:
 
-* Wildcard queries
 * Exploratory retrieval
 * Progressive narrowing
+* Geometric widening (point → line → plane → volume)
 
 ---
 
@@ -290,7 +290,7 @@ In NAM:
 
 * Ingestion is semantic commitment
 * Addresses are the only truth
-* `__null__` is meaningful
+* Non-specific coordinates (`lca:0:0`) are meaningful
 * Determinism is mandatory
 * Query can only retrieve what ingest made possible
 

@@ -1,6 +1,6 @@
 # The NAM Addressing Model
 
-*Determinism, axes, and wildcards*
+*Determinism, axes, and non-specific coordinates*
 
 This document defines how semantic addresses are constructed in NAM and why that construction is **strictly deterministic**.
 
@@ -103,7 +103,7 @@ Each encoder head:
 
 * Declares its axes explicitly
 * Controls the vocabulary for each axis
-* Emits only known axis values or `__null__`
+* Emits only known axis values or a non-specific sentinel (`lca:0:0`)
 
 Queries do not invent axes.
 Queries do not invent dimensions.
@@ -113,9 +113,11 @@ This is how alignment is preserved.
 
 ---
 
-## The Meaning of `__null__`
+## Non-Specific Axes
 
-`__null__` is a **semantic signal**, not missing data.
+When an encoder head produces no value for an axis, that axis receives a **reserved sentinel** (`lca:0:0`) — a dedicated codebook entry meaning “non-specific along this axis.”
+
+This is a **semantic signal**, not missing data.
 
 It means:
 
@@ -124,16 +126,16 @@ It means:
 This distinction is critical.
 
 * Missing data would be an error
-* `__null__` is an explicit declaration of non-specificity
+* A non-specific axis is an explicit declaration of openness
 
 Every axis **must always have a value**, and that value is either:
 
-* A concrete semantic token
-* Or `__null__`
+* A concrete LCA-encoded coordinate (e.g., `lca:42:17`)
+* Or the non-specific sentinel (`lca:0:0`)
 
 There is no third state.
 
-At ingest time, `__null__` values participate in the covering index like any other coordinate value. At query time, axes with `__null__` are treated as unspecified — the query planner omits them from the prefix, causing the prefix scan to match across all values along that axis. This is how geometric widening (points → lines → planes → volumes) works without storing explicit wildcard copies.
+At ingest time, non-specific axes participate in the covering index like any other coordinate value — the sentinel is stored in all N rotations. At query time, the planner detects non-specific axes and omits them from the prefix, causing the prefix scan to match across all values along that axis. This is how geometric widening (points → lines → planes → volumes) works without storing explicit wildcard copies.
 
 ---
 
@@ -144,7 +146,7 @@ Even when information is absent, an address is still fully formed.
 Example:
 
 ```
-(entity:tyler_denton, place, x=lca:42:17, y=__null__, z=__null__)
+(entity:tyler_denton, place, x=lca:42:17, y=lca:0:0, z=lca:0:0)
 ```
 
 In production, coordinates are **LCA byte codes** (see "Coordinate Encoding" below), not raw strings. Each code is a compact pair of integers representing the semantics of the original string value.
@@ -254,11 +256,11 @@ There is no fuzzy matching at storage time.
 Two addresses are equal only if:
 
 * All components match exactly
-* Including `__null__` placements
+* Including non-specific sentinel placements
 
 This is why:
 
-* `__null__` must be consistent
+* Non-specific sentinels must be consistent
 * Ingest and query must align
 * Encoder behavior must be stable
 
@@ -315,7 +317,7 @@ It is a signal that the addressing contract is broken.
 
 * Addresses are deterministic semantic coordinates
 * Axes are defined, not discovered
-* `__null__` signals non-specificity, enabling geometric widening via prefix scans
+* Non-specific axes (`lca:0:0`) enable geometric widening via prefix scans
 * Every address is stored as N cyclic rotations (covering index)
 * Ingest and query must align exactly — same encoding, same rotations
 

@@ -15,7 +15,7 @@ nam-documentation/
 ├── ARCHITECTURE/
 │   ├── HIGH_LEVEL_SYSTEMS.md     # Conceptual system (11 components)
 │   ├── GEOMETRIC_RETRIEVAL.md    # Cubes, planes, lines, points
-│   ├── ADDRESSING_MODEL.md       # Determinism, axes, wildcards, hash-based entity IDs
+│   ├── ADDRESSING_MODEL.md       # Determinism, axes, non-specific coordinates, hash-based entity IDs
 │   ├── INGESTION_MODEL.md        # Entity-anchored bundling, encoder roles, CDC entry
 │   ├── QUERY_MODEL.md            # How questions become probes (progressive fan-out)
 │   ├── PIPELINE_ARCHITECTURE.md  # Staged pipeline, per-pod architecture, lease coordination

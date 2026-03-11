@@ -49,8 +49,8 @@ Where:
 
 Each axis may contain:
 
-* A concrete value (e.g. `outdoor`, `bicycle`, `professional`)
-* Or a special wildcard value: `__null__`
+* A concrete LCA-encoded value (e.g. `lca:42:17`, `lca:201:55`)
+* Or the non-specific sentinel (`lca:0:0`) — a reserved codebook entry meaning "not constrained along this axis"
 
 ---
 
@@ -98,12 +98,12 @@ Points are useful when:
 
 ## Lines
 
-A **line** occurs when one axis is open (`__null__`).
+A **line** occurs when one axis is concrete and the others are non-specific.
 
 Example:
 
 ```
-(entity:tyler_denton, location, x=park, y=__null__, z=__null__)
+(entity:tyler_denton, location, x=lca:42:17, y=lca:0:0, z=lca:0:0)
 ```
 
 This represents:
@@ -126,7 +126,7 @@ A **plane** occurs when two axes are open.
 Example:
 
 ```
-(entity:tyler_denton, location, x=__null__, y=__null__, z=outdoor)
+(entity:tyler_denton, location, x=lca:0:0, y=lca:0:0, z=lca:8:130)
 ```
 
 This represents:
@@ -149,7 +149,7 @@ A **cube** exists when all axes are open.
 Example:
 
 ```
-(entity:tyler_denton, location, x=__null__, y=__null__, z=__null__)
+(entity:tyler_denton, location, x=lca:0:0, y=lca:0:0, z=lca:0:0)
 ```
 
 This represents:
@@ -166,29 +166,29 @@ Cubes are typically used:
 
 ---
 
-## Why `__null__` Is Not “Missing”
+## Why Non-Specific Axes Are Not “Missing”
 
 A critical design choice in NAM:
 
-> `__null__` does **not** mean “unknown”
-> It means “non-specific along this axis”
+> A non-specific axis does **not** mean “unknown.”
+> It means “not constrained along this axis.”
 
 This distinction matters.
 
 * A missing field would be an error
-* `__null__` is an intentional declaration of openness
+* A non-specific axis (`lca:0:0`) is an intentional declaration of openness
 
-At ingest time, `__null__` values participate in the covering index like any other coordinate value — they are stored in all N rotations of the key.
+At ingest time, non-specific axes participate in the covering index like any other coordinate value — the sentinel is stored in all N rotations of the key.
 
-At query time, `__null__` axes are treated as unspecified. The query planner omits them from the prefix, which causes the prefix scan to match across all values along that axis. This is how a query naturally widens from a point (all axes specified) to a line, plane, or volume — by shortening the prefix.
+At query time, the planner detects non-specific axes and omits them from the prefix, which causes the prefix scan to match across all values along that axis. This is how a query naturally widens from a point (all axes specified) to a line, plane, or volume — by shortening the prefix.
 
-`__null__` allows a record to:
+Non-specific axes allow a record to:
 
 * Participate in multiple queries
 * Be retrieved even when queries are underspecified
 * Occupy a line, plane, or volume
 
-Without `__null__`, geometric retrieval collapses.
+Without non-specific axes, geometric retrieval collapses.
 
 ---
 

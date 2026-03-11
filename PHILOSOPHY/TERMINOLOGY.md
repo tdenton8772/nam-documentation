@@ -53,7 +53,7 @@ In production, coordinates are **LCA byte codes** — compact integer pairs prod
 * `"lca:42:17"` (an attribute coordinate)
 * `"lca:201:55"` (an affordance coordinate)
 * `"entity:tyler_denton"` (entity anchors remain string-based)
-* `"__null__"` (wildcard)
+* `"lca:0:0"` (non-specific — reserved sentinel for axes with no value)
 
 Conceptually, coordinates are symbolic — their meaning comes from **position** in the codebook, not numeric magnitude. Semantically similar strings map to nearby codes, enabling geometric neighborhood queries.
 
@@ -79,9 +79,11 @@ Axes are:
 
 ---
 
-## Null Coordinate (`__null__`)
+## Non-Specific Coordinate
 
-`__null__` is a **first-class coordinate**, not a missing value.
+When an encoder head produces no value for an axis, the coordinate is set to a **reserved sentinel** (`lca:0:0`) — a dedicated codebook entry that means “non-specific along this axis.”
+
+This is a **first-class coordinate**, not missing data.
 
 It explicitly means:
 
@@ -89,11 +91,11 @@ It explicitly means:
 
 Important properties:
 
-* `__null__` participates in address construction
-* `__null__` is queryable
-* `__null__` is intentional, not accidental
+* Non-specific coordinates participate in the covering index like any other value
+* At query time, the planner detects non-specific axes and omits them from the prefix scan, matching across all values along that axis
+* Non-specificity is intentional, not accidental
 
-A record with `__null__` is not “incomplete” — it is **less specific**.
+A record with a non-specific axis is not “incomplete” — it is **less specific**.
 
 ---
 
@@ -101,9 +103,9 @@ A record with `__null__` is not “incomplete” — it is **less specific**.
 
 Using the axes:
 
-* **Point** — all axes populated
-* **Line** — one axis unconstrained (`__null__`)
-* **Plane** — two axes unconstrained
+* **Point** — all axes populated with concrete values
+* **Line** — one axis non-specific
+* **Plane** — two axes non-specific
 
 This is not metaphorical — it is how retrieval works.
 
@@ -351,7 +353,7 @@ NAM fails if teams use:
 
 * “similarity” when they mean proximity
 * “learning” when they mean accumulation
-* “null” when they mean wildcard
+* “null” when they mean non-specific
 * “ranking” when there is none
 
 This document exists so that:

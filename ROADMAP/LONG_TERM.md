@@ -65,7 +65,30 @@ NAM becomes a **compass**, not a search box.
 
 ---
 
-## 3. Domain-Native Intelligence (Without Model Coupling)
+## 3. Semantic Graph Navigation
+
+NAM's address space encodes multi-dimensional relationships. Long-term, these relationships become **navigable as a graph** — not a traditional property graph with explicit edges, but a graph that emerges from the geometry of the address space itself.
+
+Key directions:
+
+* **Cross-dimensional discovery** — finding records that share composite relationships across multiple semantic axes simultaneously, not just along a single dimension
+* **Hierarchical semantic clustering** — records that share relationships across multiple projections form natural clusters at different levels of specificity, from individual address neighborhoods to broad thematic communities
+* **Configurable graph topologies** — different deployments materialize different graph structures based on which dimensional combinations matter for their domain
+* **Write-time materialization** — graph edges are resolved from sealed artifacts at ingest time, keeping query-time traversal deterministic and computationally minimal
+
+This is not a pivot toward graph databases. It is the **natural extension of geometric retrieval**: the same address space, the same deterministic principles, but navigated as a connected structure rather than probed as isolated regions.
+
+The value is in questions that today require multiple independent queries:
+
+* “What else is connected to this entity across *both* its capabilities and its context?”
+* “Which records form a semantic cluster when you consider entity, affordance, and context together?”
+* “What relationships exist that no single-axis query can express?”
+
+These are orientation questions, not retrieval questions — and they require graph-level reasoning over geometry.
+
+---
+
+## 4. Domain-Native Intelligence (Without Model Coupling)
 
 Over time, NAM enables organizations to encode **domain intelligence** without:
 
@@ -87,7 +110,7 @@ This creates long-term value by:
 
 ---
 
-## 4. Deterministic AI Infrastructure as a Differentiator
+## 5. Deterministic AI Infrastructure as a Differentiator
 
 The long-term bet is that **determinism becomes a competitive advantage**, not a constraint.
 
@@ -112,7 +135,7 @@ NAM’s value compounds as:
 
 ---
 
-## 5. Semantic Interoperability Across Systems
+## 6. Semantic Interoperability Across Systems
 
 Long-term, NAM enables **semantic interoperability** where today we only have:
 
@@ -135,7 +158,7 @@ This is especially relevant for:
 
 ---
 
-## 6. Human–System Collaboration (Not Replacement)
+## 7. Human–System Collaboration (Not Replacement)
 
 NAM is not designed to replace human reasoning.
 
@@ -163,7 +186,7 @@ This positions NAM as infrastructure for:
 
 ---
 
-## 7. Compounding Value Over Time
+## 8. Compounding Value Over Time
 
 The most important long-term property of NAM is **compounding semantic value**.
 

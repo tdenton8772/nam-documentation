@@ -129,7 +129,53 @@ NAM can be evaluated on its merits, not misunderstood or mispositioned.
 
 ---
 
-## 6. Multi-Tenant Considerations
+## 6. Dimensional Graph Traversal
+
+**Goal:** Enable graph-style queries over NAM's semantic address space — walking relationships across dimensions without vector math at query time.
+
+NAM already encodes multi-dimensional semantic relationships (entity, attribute, affordance, context) via LCA byte codes. Today, these dimensions are queried independently via prefix scans on the covering index. Graph traversal extends this by enabling **cross-dimensional navigation**: given an address, find other addresses that share semantic relationships across multiple axis combinations simultaneously.
+
+### How It Works
+
+The core idea: NAM's LCA codebook already contains geometric structure — semantically similar strings map to nearby codebook entries. Graph traversal exploits this structure by materializing relationships at write time, so query-time graph walks are pure key-value lookups with no floating-point computation.
+
+* **Dimensional projections** — instead of per-dimension graphs, NAM builds projections across dimension *combinations* (e.g., entity+affordance, entity+context, attribute+affordance). Each projection captures composite semantic relationships that no single dimension expresses alone.
+
+* **Write-time edge materialization** — LCA codes are codebook indices, not vectors. Proximity only exists in the original embedding space. At write time, the system resolves edges using a precomputed similarity matrix (a sealed artifact trained from codebook vectors). The result: precomputed neighbor lists stored alongside inverted indexes.
+
+* **Query-time graph walks** — all lookups, no computation. Read an address's projection code, read that code's precomputed edge list, look up the inverted index for each neighbor code. The result is a set of semantically related addresses found via integer lookups and set operations.
+
+### Architectural Approach
+
+The graph index is a **separate derived store maintained via change data capture**, following the same DCP-driven pattern used throughout NAM:
+
+* The address store stays simple — standard key-value storage, no custom formats
+* The index is derived, rebuildable, and eventually consistent with the address store
+* Schema changes or new projections are handled by replaying the stream
+* Index writes do not affect address store read/write performance
+
+### Phased Work
+
+1. **Per-dimension storage statistics** — dimension-level metadata (min, max, cardinality) computed during storage flushes. Enables file-level pruning before any data is read.
+
+2. **Inverted indexes** — per-dimension indexes mapping codebook entries to sets of matching addresses. Enables dimensional lookups via simple key-value reads.
+
+3. **Projection codebooks, edges, and graph walks** — trained projection codebooks for configured axis combinations, precomputed similarity matrices as sealed artifacts, and a graph walk API that chains key lookups through edge lists and inverted indexes.
+
+### Properties
+
+* **Deterministic** — graph topology is derived from sealed artifacts, not computed at query time
+* **No vector math at query time** — edges are precomputed integers, traversal is key-value lookups
+* **Configurable** — graph schemas define which axis combinations to project. Different deployments can materialize different graph topologies.
+* **Analytical, not real-time** — subsecond response is the target, not single-digit milliseconds
+* **Rebuildable** — the entire graph index can be reconstructed by replaying the address store's change stream
+
+**Outcome:**
+NAM's address space becomes navigable as a graph. Queries can discover related addresses across multiple semantic dimensions simultaneously — something no single-axis prefix scan can express.
+
+---
+
+## 7. Multi-Tenant Considerations
 
 **Goal:** Prepare the system for deployments where multiple tenants or domains share infrastructure.
 
@@ -160,13 +206,14 @@ Those belong in later phases.
 
 ## Summary
 
-The short-term roadmap is about **earning trust**:
+The short-term roadmap is about **earning trust and extending reach**:
 
 * Trust that NAM can be deployed securely
 * Trust that it behaves deterministically
 * Trust that access is authenticated and auditable
 * Trust that it can be evaluated honestly
 * Trust that domain adaptation is deliberate and controlled
+* Graph traversal that unlocks cross-dimensional semantic navigation
 
 Once those foundations are solid, expanding capability becomes much easier — and much safer.
 

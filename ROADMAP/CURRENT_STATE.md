@@ -122,7 +122,7 @@ Today's NAM implementation includes:
 * **Staged ingest pipeline** — CDC streaming, rule-based NLP, ontology classification, parallel encoder heads, entity-anchored addressing
 * **Five encoder heads** — entity (hash-based, fuzzy-first resolution), attribute (dependency-linked), affordance (verb extraction with synonym folding), context (sentence-level), ontology (26 canonical types)
 * **Entity-anchored address construction** via dependency-parse-scoped bundling (~40 addresses/record vs. thousands with naive Cartesian product)
-* **Covering index** — N cyclic rotations per base address replace 2^N null-expansion copies; enables single-prefix-scan retrieval for any axis combination
+* **Covering index** — N cyclic rotations per base address enable single-prefix-scan retrieval for any axis combination without null-expansion copies
 * **LCA (Learned Codec for Addressing)** — character CNN + residual vector quantization encodes coordinates as compact byte-code pairs; ONNX Runtime inference for ARM-optimized performance
 * **Entity codebook with rejection classes** — VQ classifier (k=32) with rejection clusters for generic nouns and low-salience candidates; compound filter applies rule-based checks before rejection
 * **3-level cache hierarchy** — per-process dicts (L1), LMDB on tmpfs via DaemonSet (L2), data service KV (L3) for entity, attribute, and affordance resolution
@@ -137,6 +137,28 @@ Today's NAM implementation includes:
 * **Offline calibration pipelines** and deterministic test harnesses
 
 These systems are not stubs — they are exercised regularly at scale.
+
+### Graph Index
+
+* The addressing pipeline writes graph index entries **directly** to a dedicated `graph` bucket alongside address writes — no separate index builder needed
+* Two async write paths per addressing worker: WritePipeline → nam bucket (addresses), ThreadPoolExecutor → graph bucket (axis subset index keys)
+* Prefix scans over the graph index enable cross-dimensional graph traversal without vector math at query time
+* The graph index is fully rebuildable by re-processing the source data through the pipeline
+* **Graph walk** and **record walk** APIs traverse the index at configurable hop depth, with entity resolution
+
+### Query Canonicalizer
+
+* A **rule-based query canonicalizer** normalizes raw queries into head-friendly canonical form
+* Detects query intent (IDENTITY, LOCATION, TEMPORAL, ATTRIBUTE, GENERAL) from interrogative patterns
+* Preserves copulas and verbs (unlike the ingest-path deadwood stripper)
+* Entity store lookup resolves known entities and injects type-derived descriptors so encoder heads extract richer signal
+* Post-enrichment fills NULL context and affordance dimensions when the canonicalizer has metadata the heads missed
+
+### Write Pipeline Resilience
+
+* **ETMPFAIL retry** — data service write queue saturation (status 0x86) is retried with 200ms–2s exponential backoff with jitter, preventing dropped addresses under sustained write pressure
+* **KV proxy TCP tuning** — TCP_NODELAY, 256KB io.CopyBuffer, and 256KB socket buffers (SO_RCVBUF/SO_SNDBUF) for 3.5x improvement in per-connection throughput
+* **Circuit breaker** on addressing write pipeline with configurable thresholds and cooldown
 
 → See: [Pipeline Architecture](../ARCHITECTURE/PIPELINE_ARCHITECTURE.md) | [Data Persistence](../ARCHITECTURE/DATA_PERSISTENCE.md)
 
@@ -272,5 +294,20 @@ Today, NAM is:
 * Proven under real workloads
 * Capable of meaningful pilots and production deployments
 * Intentionally conservative in behavior
+
+### Validated Scale
+
+The system has been validated with:
+
+* **500,000 records ingested** through the full pipeline (CDC → NLP → heads → addressing → storage) with **0 pipeline errors**
+* **13.3M semantic addresses** generated in the nam bucket (421 MB on disk)
+* **19.7M graph index entries** written directly by the addressing pipeline (352 MB on disk)
+* **3.4M+ session store entries** accumulated across entity, attribute, affordance, and context caches
+* **120 records/second** sustained pipeline throughput (bottlenecked by metrics lease latency, not storage)
+* **0 write failures** in addressing — circuit breaker never tripped during 500K load
+* **6/6 affordance queries** correctly routed (LOCATION, PERSON, TIME types)
+* **Graph walk** and **record walk** queries operational at 500K scale (~200ms latency)
+* Pipeline throughput scales linearly with ingest pod count
+* Address and graph stores use a purpose-built RocksDB engine (single CF, prefix bloom) — no compaction storms at scale
 
 It is early — but it is **solid, secure, and scaling**.

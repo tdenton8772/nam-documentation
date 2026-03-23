@@ -185,6 +185,90 @@ Executes a semantic query against NAM's address space. Requires a valid token.
 * **EXPLORATORY** — No affordance verb detected. Probes broadly across ontology tiers.
 * **AFFORDANCE** — Affordance verb recognized (e.g., "Where is...", "Who leads..."). Probes narrowly using affordance-specific strategies.
 
+### Graph Walk
+
+```
+POST /v1/graph/walk
+```
+
+Traverses NAM's graph index starting from a query, following semantic relationships across dimensions. Requires a valid token.
+
+**Request body:**
+```json
+{
+  "query": "string",
+  "hop_depth": 2,
+  "limit": 20
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `query` | string | Yes | Starting query text |
+| `hop_depth` | integer | No | Number of hops to traverse (default: 2) |
+| `limit` | integer | No | Maximum results per hop (default: 20) |
+
+**Response:**
+```json
+{
+  "ok": true,
+  "hops": [
+    {
+      "depth": 0,
+      "results": [ ... ]
+    },
+    {
+      "depth": 1,
+      "results": [ ... ]
+    }
+  ]
+}
+```
+
+### Record Walk
+
+```
+POST /v1/graph/record-walk
+```
+
+Traverses the graph index starting from a specific record, discovering semantically related records through shared address dimensions. Requires a valid token.
+
+**Request body:**
+```json
+{
+  "record_id": "string",
+  "hop_depth": 1,
+  "limit": 20
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `record_id` | string | Yes | Source record identifier |
+| `hop_depth` | integer | No | Number of hops (default: 1) |
+| `limit` | integer | No | Maximum results per hop (default: 20) |
+
+### Entity Documents
+
+```
+GET /v1/graph/entity/{entity_id}/documents?limit=20
+```
+
+Returns documents associated with a specific entity, resolved through the graph index.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `entity_id` | path | Yes | Entity identifier (hash-based) |
+| `limit` | query | No | Maximum documents to return (default: 20) |
+
+### Graph Statistics
+
+```
+GET /v1/graph/stats
+```
+
+Returns statistics about the graph index: total entries, index types, and edge counts.
+
 ---
 
 ## Health
@@ -305,14 +389,17 @@ Returns aggregated system health from multiple sources.
 **Response:**
 ```json
 {
-  "timestamp": "2026-02-27T12:00:00Z",
+  "timestamp": "2026-03-23T12:00:00Z",
   "buckets": {
-    "main": { "item_count": 1000, "status": "healthy" },
-    "nam": { "item_count": 50000, "status": "healthy" }
+    "main": { "item_count": 500000, "status": "healthy" },
+    "nam": { "item_count": 13300000, "status": "healthy" },
+    "graph": { "item_count": 19700000, "status": "healthy" },
+    "session": { "item_count": 3400000, "status": "healthy" },
+    "metrics": { "item_count": 256, "status": "healthy" }
   },
   "dcp": {
-    "enqueued_total": 1000,
-    "dequeued_total": 1000,
+    "enqueued_total": 500000,
+    "dequeued_total": 500000,
     "errors_total": 0
   },
   "pods": [ ... ],
@@ -347,14 +434,44 @@ Returns CDC pipeline throughput metrics.
 **Response:**
 ```json
 {
-  "enqueued_total": 1000,
-  "dequeued_total": 1000,
+  "enqueued_total": 500000,
+  "dequeued_total": 500000,
   "errors_total": 0,
   "per_pod": {
-    "nam-ingest-0": { "enqueued": 500, "dequeued": 500 }
+    "nam-ingest-0": { "enqueued": 125000, "dequeued": 125000 },
+    "nam-ingest-1": { "enqueued": 125000, "dequeued": 125000 }
   }
 }
 ```
+
+#### Bucket Statistics
+
+```
+GET /v1/admin/bucket-stats
+```
+
+Returns item counts and disk usage for all data service buckets.
+
+#### Storage Statistics
+
+```
+GET /v1/admin/storage-stats
+```
+
+Returns storage-level statistics including disk usage, data used, and S3 replication status per bucket.
+
+#### Time-Series Metrics
+
+```
+GET /v1/admin/time-series?metric=throughput&window=3600
+```
+
+Returns time-series data for pipeline and storage metrics.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `metric` | query | Required | Metric name (e.g., `throughput`, `latency`, `item_count`) |
+| `window` | query | 3600 | Time window in seconds |
 
 #### Reset Pipeline
 
@@ -590,7 +707,9 @@ NAM's public API provides:
 
 * **Authentication** — JWT-based, role-scoped, time-limited
 * **Querying** — Single endpoint for all semantic queries, with automatic mode detection
+* **Graph traversal** — Graph walk, record walk, and entity document retrieval via the graph index
 * **Administration** — User management, system status, pipeline control, document browsing
+* **Monitoring** — Bucket statistics, storage statistics, time-series metrics, pipeline error breakdown
 * **Data replication** — Cross-datacenter replication management
 * **Storage management** — S3 backup configuration and savepoints
 * **Direct data access** — Authenticated KV proxy for SDK integration

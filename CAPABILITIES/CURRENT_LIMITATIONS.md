@@ -33,9 +33,14 @@ Affordance detection today is designed to:
 * prefer exploratory mode over incorrect precision
 * err on “unknown” rather than “wrong”
 
+Recent improvements:
+
+* copular constructions (“X is Y”) now produce “classify” or “describe” affordances instead of being filtered by the light verb firewall
+* query canonicalizer detects interrogative intent (who/what/where/when/how) and injects affordance hints when heads produce NULL
+
 As a result:
 
-* some valid queries fall back to exploratory retrieval
+* some valid queries still fall back to exploratory retrieval
 * affordances may not activate until explicitly trained
 * affordance confidence thresholds are intentionally strict
 
@@ -164,12 +169,18 @@ Despite these limitations, today’s NAM implementation already supports:
 * progressive fan-out query execution with early termination
 * covering index (N cyclic rotations per base address) enabling single-prefix-scan retrieval for any axis combination
 * LCA byte-code coordinate encoding with codebook neighborhood fan-out
-* entity codebook with rejection classes (~40 addresses/record, down from ~110)
+* entity codebook with rejection classes (~42 addresses/record average)
 * ontology-aware retrieval with 26 canonical types (no catch-all fallback)
 * S3-backed persistent storage with on-demand caching
 * CDC-based continuous ingestion with automatic lease coordination
+* graph index with 19.7M+ entries written directly by the addressing pipeline
+* query canonicalization with intent detection and entity expansion
+* copular affordance handling and NOUN compound/appositive attribute extraction
+* context keyword fallback for domain and temporal signals
+* ETMPFAIL retry with exponential backoff for write queue saturation resilience
 * inspectable query execution and reproducible retrieval behavior
 * exploratory semantic navigation
+* validated at 500K records with 13.3M+ semantic addresses and 0 write failures
 * integration with downstream systems (including LLMs)
 * meaningful pilots in well-scoped domains
 

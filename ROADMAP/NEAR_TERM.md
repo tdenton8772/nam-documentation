@@ -131,47 +131,43 @@ NAM can be evaluated on its merits, not misunderstood or mispositioned.
 
 ## 6. Dimensional Graph Traversal
 
+**Status:** Operational. The addressing pipeline writes graph index entries directly to a dedicated `graph` bucket alongside address writes. Graph walk and record walk APIs traverse the index at configurable hop depth with entity resolution. Validated at 500K records with 19.7M graph index entries and ~200ms query latency.
+
 **Goal:** Enable graph-style queries over NAM's semantic address space — walking relationships across dimensions without vector math at query time.
 
-NAM already encodes multi-dimensional semantic relationships (entity, attribute, affordance, context) via LCA byte codes. Today, these dimensions are queried independently via prefix scans on the covering index. Graph traversal extends this by enabling **cross-dimensional navigation**: given an address, find other addresses that share semantic relationships across multiple axis combinations simultaneously.
+NAM encodes multi-dimensional semantic relationships (entity, attribute, affordance, context) via LCA byte codes. The semantic query path probes these dimensions via prefix scans on the covering index. Graph traversal extends this by enabling **cross-dimensional navigation**: given an address or record, find other addresses that share semantic relationships across multiple axis combinations simultaneously.
 
 ### How It Works
 
-The core idea: NAM's LCA codebook already contains geometric structure — semantically similar strings map to nearby codebook entries. Graph traversal exploits this structure by materializing relationships at write time, so query-time graph walks are pure key-value lookups with no floating-point computation.
+NAM's LCA codebook contains geometric structure — semantically similar strings map to nearby codebook entries. Graph traversal exploits this structure by materializing relationships at write time, so query-time graph walks are pure key-value lookups with no floating-point computation.
 
-* **Dimensional projections** — instead of per-dimension graphs, NAM builds projections across dimension *combinations* (e.g., entity+affordance, entity+context, attribute+affordance). Each projection captures composite semantic relationships that no single dimension expresses alone.
+* **Write-time index materialization** — the addressing pipeline writes graph index entries (axis subset keys: single-axis, dual-axis, triple-axis, entity-to-record, record-reverse) directly to the `graph` bucket alongside address writes to the `nam` bucket. Two async write paths per addressing worker handle this in parallel.
 
-* **Write-time edge materialization** — LCA codes are codebook indices, not vectors. Proximity only exists in the original embedding space. At write time, the system resolves edges using a precomputed similarity matrix (a sealed artifact trained from codebook vectors). The result: precomputed neighbor lists stored alongside inverted indexes.
+* **Prefix-scan traversal** — graph walk and record walk APIs traverse the index via prefix scans. Given a starting query or record, the system resolves its address dimensions, scans the graph index for entries sharing those dimensions, and follows links to related records. Each hop expands the frontier by one degree of semantic separation.
 
-* **Query-time graph walks** — all lookups, no computation. Read an address's projection code, read that code's precomputed edge list, look up the inverted index for each neighbor code. The result is a set of semantically related addresses found via integer lookups and set operations.
+* **Entity resolution** — graph walk results include entity resolution, mapping hash-based entity identifiers back to human-readable names. Per-entity diversity limiting prevents any single entity from dominating results.
 
-### Architectural Approach
+### Graph Walk API
 
-The graph index is a **separate derived store maintained via change data capture**, following the same DCP-driven pattern used throughout NAM:
+Two traversal modes are available:
 
-* The address store stays simple — standard key-value storage, no custom formats
-* The index is derived, rebuildable, and eventually consistent with the address store
-* Schema changes or new projections are handled by replaying the stream
-* Index writes do not affect address store read/write performance
+* **Graph walk** (`POST /v1/graph/walk`) — starts from a query, encodes it through the same pipeline as semantic queries, and walks the graph index at configurable hop depth
+* **Record walk** (`POST /v1/graph/record-walk`) — starts from a specific record ID and discovers semantically related records through shared address dimensions
 
-### Phased Work
+### Remaining Work
 
-1. **Per-dimension storage statistics** — dimension-level metadata (min, max, cardinality) computed during storage flushes. Enables file-level pruning before any data is read.
-
-2. **Inverted indexes** — per-dimension indexes mapping codebook entries to sets of matching addresses. Enables dimensional lookups via simple key-value reads.
-
-3. **Projection codebooks, edges, and graph walks** — trained projection codebooks for configured axis combinations, precomputed similarity matrices as sealed artifacts, and a graph walk API that chains key lookups through edge lists and inverted indexes.
+* **Projection codebooks** — trained projection codebooks for configured axis combinations, enabling precomputed similarity matrices as sealed artifacts for richer cross-dimensional edges
+* **Inverted indexes** — per-dimension indexes mapping codebook entries to sets of matching addresses, enabling dimensional lookups via simple key-value reads
 
 ### Properties
 
-* **Deterministic** — graph topology is derived from sealed artifacts, not computed at query time
-* **No vector math at query time** — edges are precomputed integers, traversal is key-value lookups
-* **Configurable** — graph schemas define which axis combinations to project. Different deployments can materialize different graph topologies.
-* **Analytical, not real-time** — subsecond response is the target, not single-digit milliseconds
-* **Rebuildable** — the entire graph index can be reconstructed by replaying the address store's change stream
+* **Deterministic** — graph topology is derived from the address store, not computed dynamically
+* **No vector math at query time** — traversal is key-value prefix scans and lookups
+* **Configurable** — different deployments can materialize different graph topologies
+* **Rebuildable** — the graph index is fully derived from the address store and can be reconstructed by re-processing source data through the pipeline
 
 **Outcome:**
-NAM's address space becomes navigable as a graph. Queries can discover related addresses across multiple semantic dimensions simultaneously — something no single-axis prefix scan can express.
+NAM's address space is navigable as a graph. Queries discover related addresses across multiple semantic dimensions simultaneously — something no single-axis prefix scan can express.
 
 ---
 

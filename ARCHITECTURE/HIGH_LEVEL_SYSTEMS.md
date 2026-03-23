@@ -118,7 +118,7 @@ The ontology classifier is:
 * **Deterministic** — classification is based on linguistic features, not probabilistic models
 * **Exhaustive** — every record receives at least one ontology label; there is no "unknown" or "other" fallback
 
-The ontology classifier was recently hardened to eliminate a catch-all "OTHER" category that was degrading query precision. Every record now maps to a real semantic type, with "concept" serving as the broadest valid category.
+Every record maps to a real semantic type — there is no "unknown" or "other" fallback. "Concept" serves as the broadest valid category.
 
 ---
 
@@ -311,10 +311,12 @@ Execution is:
 
 ## End-to-End Flow (Ingest)
 
-1. Input arrives
-2. Encoder heads extract semantic signals
-3. Address builder constructs addresses
-4. Addresses and record references are stored
+1. Input arrives via change data capture
+2. NLP pipeline analyzes linguistic structure (tokenization, POS, dependencies)
+3. Ontology classifier determines semantic type
+4. Encoder heads extract semantic signals in parallel
+5. Address builder constructs entity-anchored addresses
+6. Addresses, record references, and graph index entries are stored
 
 No additional inference occurs later.
 

@@ -77,12 +77,13 @@ The supervisor includes an auto-discovery task framework (inspired by Apache Pin
 | Task | Mode | Description |
 |------|------|-------------|
 | `compaction` | Scheduled | In-memory compaction on live data service (local SSTs only) |
-| `flush` | Scheduled | Periodic memtable flush to ensure data reaches S3 |
+| `flush` | Manual | Flush data buckets (handles both standard and RocksDB bucket types) |
 | `s3_compaction` | Manual | Online S3 SST compaction — merges accumulated SSTs without downtime |
 | `s3_clear` | Manual | Wipes an S3 prefix (destructive, for development use) |
 | `wiki_load` | Manual | Loads Wikipedia test data via a Kubernetes Job |
 | `session_seed` | Manual | Pre-seeds session store caches |
 | `cluster_reset` | Manual | Orchestrates full pipeline reset (flush, clear, restart) |
+| `address_heal` | Manual | Scans and repairs addressing gaps with configurable workers and rate limiting |
 
 Tasks support cron scheduling, retry with exponential backoff, configurable timeouts, and execution history. All tasks are managed via the supervisor's REST API and can be triggered from the frontend dashboard.
 

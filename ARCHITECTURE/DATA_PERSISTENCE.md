@@ -22,14 +22,17 @@ This property is fundamental to NAM's trust model. There is no hidden state that
 
 ## Storage Architecture
 
-NAM uses a distributed key-value store as its persistence layer. Data is organized into four logical stores, each with a distinct purpose:
+NAM uses a distributed key-value store as its persistence layer. Data is organized into five stores, each with a distinct purpose:
 
-| Store | Purpose | Persistence |
-|-------|---------|-------------|
-| Source store | Raw records (documents, articles, events) | Persistent, S3-backed |
-| Address store | Semantic addresses pointing to source records | Persistent, S3-backed |
-| Coordination store | Leases, checkpoints, pipeline counters | Ephemeral (in-memory) |
-| Session store | Entity, attribute, affordance, and context caches | Persistent, acts as warm cache |
+| Store | Bucket | Engine | Persistence |
+|-------|--------|--------|-------------|
+| Source store | `main` | Standard (per-vbucket CFs, DCP support) | Persistent, S3-backed |
+| Address store | `nam` | RocksDB raw (single CF, prefix bloom, no hash table) | Persistent, S3-backed |
+| Graph index | `graph` | RocksDB raw (single CF, prefix bloom, no hash table) | Persistent, S3-backed |
+| Coordination store | `metrics` | Standard (per-vbucket CFs, DCP support) | Persistent, S3-backed |
+| Session store | `session` | Standard (per-vbucket CFs, DCP support) | Persistent, acts as warm cache |
+
+The address store (`nam`) and graph index (`graph`) use a purpose-built RocksDB storage engine that bypasses the hash table entirely. Writes go directly to RocksDB via blind `Merge()` operations, reads use native prefix bloom filters, and the single column family eliminates compaction storms that occurred with per-vbucket CFs at scale. This engine is optimized for NAM's workload: high-volume append-only writes with prefix-scan reads.
 
 ### Source store
 
@@ -44,9 +47,13 @@ Holds the semantic addresses constructed by the pipeline. Each address is a key-
 
 The address store is the core of NAM's retrieval capability. It is fully rebuildable from the source store.
 
+### Graph index
+
+Holds the materialized graph index — individual records per (edge_type, codes, address) that enable cross-dimensional graph traversal via prefix scan. The graph index is fully derived from the address store and is rebuilt automatically by the addressing pipeline.
+
 ### Coordination store
 
-Holds lease documents, DCP checkpoints, and pipeline metrics. This data is ephemeral — if lost, leases expire and are re-established, checkpoints restart from the beginning, and counters reset. No semantic data is lost.
+Holds lease documents, DCP checkpoints, and pipeline metrics. This data is recoverable — if lost, leases expire and are re-established, checkpoints restart from the beginning, and counters reset. No semantic data is lost.
 
 ### Session store
 
@@ -58,7 +65,7 @@ The session store is **not flushed during pipeline resets**. This preserves the 
 
 ## Object Storage Backing
 
-The persistent stores (source, address, session) use **object storage (S3-compatible)** as their durable backing layer.
+All stores use **object storage (S3-compatible)** as their durable backing layer.
 
 The storage engine writes data locally first, then asynchronously replicates to object storage. On restart, the engine can recover from object storage without local state.
 

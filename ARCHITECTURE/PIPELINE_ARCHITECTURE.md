@@ -46,7 +46,7 @@ A single ingest pod contains:
 | Attribute head | Property and descriptor extraction | 1 per pod |
 | Affordance head | Action and capability extraction | 1 per pod |
 | Context head | Situational and temporal context | 1 per pod |
-| Addressing | Entity-anchored bundling, address construction, storage writes | 1 per pod |
+| Addressing | Entity-anchored bundling, address construction, address + graph index writes | Multiple per pod |
 
 ### Why per-pod isolation?
 
@@ -82,7 +82,8 @@ Addressing (streaming join of all head outputs per record)
    |--- Entity-anchored bundling
    |--- LCA encoding (learned byte-code coordinates)
    |--- Address construction
-   |--- Background storage writes
+   |--- Background address writes (nam bucket)
+   |--- Background graph index writes (graph bucket)
 ```
 
 ### Key properties of this ordering:
@@ -147,7 +148,7 @@ For each record, the addressing stage:
 1. **Accumulates** outputs from all encoder heads (entity, attribute, affordance, context)
 2. **Bundles** semantic components using dependency-parse-scoped entity anchoring
 3. **Constructs** deterministic addresses from each bundle
-4. **Writes** addresses to the storage layer via a background thread
+4. **Writes** addresses to the address store and graph index entries to the graph store via parallel background writers
 
 ### Fire-and-forget writes
 

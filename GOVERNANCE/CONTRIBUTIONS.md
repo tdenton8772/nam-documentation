@@ -13,9 +13,9 @@ This document defines how collaboration works, what kinds of contributions are a
 NAM prioritizes **coherence over velocity**.
 
 The system is built around a small set of non-negotiable invariants:
-- Determinism
+- Determinism on the structural access paths
 - Explicit semantics
-- Geometric retrieval
+- Attributed retrieval (every result says which access path found it)
 - Separation of training from execution
 - Rebuildability
 
@@ -68,15 +68,15 @@ There is no guarantee that any contribution will be accepted.
 - Examples and explanatory material
 
 ### Conditionally Accepted
-- Encoder heads (with clear contracts)
+- Encoder heads (with clear contracts: head implementations are written against the SDK in the open-source `nam-heads` package)
 - Training pipelines (offline only)
 - Storage backends (behind abstractions)
-- Query strategies (must preserve determinism)
+- Query strategies and routing policies (must preserve address-path determinism and per-path attribution)
 
 ### Explicitly Out of Scope
 - Ad-hoc feature additions
 - Runtime learning logic
-- Heuristic ranking or scoring
+- Opaque ranking or scoring that hides which path produced a result
 - Non-deterministic execution paths
 - Changes that collapse ambiguity prematurely
 - Forks intended to compete with NAM

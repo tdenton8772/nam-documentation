@@ -2,242 +2,202 @@
 
 *How NAM is deployed and operated*
 
-This document describes NAM's deployment topology, service layout, and operational model.
+This document describes NAM's deployment topology, service layout and operational model.
 
 ---
 
 ## Deployment Model
 
-NAM is deployed as a set of containerized services orchestrated by Kubernetes. All deployment is managed through a single templated manifest system (Helm chart) — there are no raw manifests or ad-hoc deployments.
+NAM runs as a set of containerized services on Kubernetes. **A single Helm chart is the only deployment mechanism**: there are no raw manifests and no ad-hoc deployments. One `helm upgrade --install` creates or upgrades the whole system, and environments differ only by values files (a single-node development cluster, a multi-node production cluster), never by templates.
 
-A single deployment command creates, upgrades, or replaces the entire system. Environment-specific configurations (development, staging, production) are handled through value overrides, not separate templates.
+The chart validates itself at render time. For example, it refuses to render an ingest pipeline without a durable on-disk queue, and refuses bucket memory quotas that do not fit the data nodes.
 
 ---
 
 ## Service Topology
 
-A NAM deployment consists of the following services:
+### Data Service (StatefulSet)
 
-### Ingest Pods (StatefulSet)
+NAM's own distributed key-value store. It holds the source records (`main`), the head stores (`session`), coordination data (`metrics`) and the three indexes (`nam`, `graph`, `vector`). It runs as a multi-node tier with a replica of every vbucket. The reference deployment has three data nodes, pinned one pod per data host, and its data pods are never restarted by a template change: a running data pod picks up a new template only when deliberately replaced.
 
-Each ingest pod is a self-contained processing unit that runs the full ingestion pipeline:
+Storage is mirrored to S3-compatible object storage; the reference deployment runs an in-cluster object store on its own node.
 
-* **CDC adapter** — streams mutations from the data service
-* **NLP worker** — rule-based linguistic analysis
-* **Ontology worker** — semantic type classification
-* **Encoder head workers** — entity (multiple), attribute, affordance, context
-* **Addressing worker** — entity-anchored bundling and address construction
-* **Pod-local message bus** — stage-to-stage communication within the pod
+→ See: [Data Persistence](DATA_PERSISTENCE.md)
 
-Ingest pods are stateful: each pod owns a set of data partitions via CAS-based leases. The StatefulSet ensures stable pod identities for lease management.
+### Ingest (StatefulSet)
 
-**Scaling:** Add or remove replicas. Partitions are automatically redistributed.
+Each ingest pod is a self-contained address pipeline:
+
+* **Change-stream adapter**: streams `main` mutations for the partitions this pod leases
+* **Pod-local message bus**, with durable on-disk streams on the pod's persistent volume (at least the work queue in front of addressing; every hop between stages on the reference deployment)
+* **NLP workers**
+* **Ontology workers**
+* **Encoder head workers**: entity, attribute, affordance, context (worker counts per values file)
+* **Accumulators**: join head results per record and write complete records to the durable queue
+* **Addressing workers**: bundle, code and write addresses to `nam`, acknowledging after write
+* **Head-store sync workers**: one single writer per head store
+
+The StatefulSet gives each pod a stable identity for leases and a persistent volume for its queue.
+
+**Scaling:** with autoscaling on, the supervisor sizes the tier from its backlog and the chart's autoscaling objects (KEDA) apply the count; partitions rebalance automatically as pods come and go, and a pod that is shutting down releases its partitions and drains its queues first. The reference deployment keeps at least one ingest pod.
+
+### Vector Ingest (StatefulSet)
+
+A separate pipeline with its own change-stream consumers on `main`, its own durable queue and its own embedding workers, which hand embedded records to the vector index writer. When a backlog builds, workers acquire a GPU from an external GPU registry for burst embedding and release it after a sustained idle period.
+
+### Vector Index Writer (Deployment, single replica)
+
+Receives the embedded records from every vector ingest pod and files them into the `vector` bucket. It is pinned to one replica so the vector index has exactly one writer.
+
+### Graph Index Builder (StatefulSet)
+
+A sharded consumer of the `nam` change stream that writes the `graph` bucket. Each shard owns the partitions whose number modulo the shard count equals its ordinal. It is off the ingest acknowledgement path, resumes from checkpoints, and can be paused and resumed without loss. With autoscaling on, its replica count follows the ingest tier's.
+
+→ See: [Graph Index](GRAPH_INDEX.md)
+
+### Head-Store Cache (DaemonSet)
+
+One per compute node. It follows the `session` bucket's change stream and keeps memory-mapped copies of the four head stores (entity, attribute, affordance, context) on node-local shared memory. Head workers on the node read them read-only.
 
 ### Query Service (Deployment)
 
-A stateless HTTP service that handles:
+The external retrieval API: authentication, the `/v1/query` orchestrator, direct vector search and graph walks, and the admin API. Replicas are stateless and equivalent; a replica reports ready once its head-slot manifest and its view of the vector index are loaded. The chart supports autoscaling and a disruption budget. It is published through a TLS ingress.
 
-* Semantic queries (exploratory and affordance modes)
-* Authentication and user management
-* System administration APIs
-* Document browsing
+→ See: [Query Model](QUERY_MODEL.md) | [API Reference](API_REFERENCE.md)
 
-The query service is the only externally-facing API. It connects to the data service for address lookups and document retrieval.
+### Supervisor (Deployment, single replica)
 
-**Scaling:** Standard horizontal scaling. All replicas are equivalent.
+Cluster lifecycle and automated maintenance:
 
-### Data Service (StatefulSet)
+* Waits for the data service and verifies its buckets
+* Bootstraps the administrative account
+* Gates readiness of downstream services
+* Monitors health on a recurring loop
+* Runs the **task framework**, including the decision of how large the ingest tier should be
 
-The distributed key-value store that persists all NAM data:
+Its admin API requires an admin JWT on every administrative route and fails closed when it has no signing secret; only the health and readiness probes are open, and the read-only scaling decision the autoscaler polls takes its own separate token.
 
-* Source documents (raw records)
-* Semantic addresses (the address index)
-* Entity and vocabulary caches (session state)
-* Coordination documents (leases, checkpoints)
+### Remote Compaction Workers (Deployment)
 
-The data service uses a custom storage engine backed by S3-compatible object storage for durability. On-demand caching enables fast cold starts.
+Always-on workers that run RocksDB compaction jobs off the data nodes, reading inputs from object storage. Jobs are claimed exclusively. The compaction controller sizes the pool to the data nodes' backlog, and a backstop job covers the case where no worker is running.
 
-**Scaling:** Replicas provide redundancy. Data is partitioned across vbuckets.
+### KV Proxy (Deployment, optional)
 
-### Supervisor (Deployment)
-
-A single-instance service that handles cluster lifecycle and automated maintenance:
-
-* Waits for the data service to become available
-* Creates storage structures (buckets) during bootstrap
-* Monitors cluster health on a recurring basis
-* Coordinates pipeline resets and data loading
-* Gates readiness for downstream services
-* Runs the **task framework** — a pluggable system for scheduled and manual maintenance tasks
-
-#### Task Framework
-
-The supervisor includes an auto-discovery task framework (inspired by Apache Pinot's Minion architecture) that manages operational tasks. Tasks are defined as Generator + Executor pairs and are automatically discovered at startup.
-
-| Task | Mode | Description |
-|------|------|-------------|
-| `compaction` | Scheduled | In-memory compaction on live data service (local SSTs only) |
-| `flush` | Manual | Flush data buckets (handles both standard and RocksDB bucket types) |
-| `s3_compaction` | Manual | Online S3 SST compaction — merges accumulated SSTs without downtime |
-| `s3_clear` | Manual | Wipes an S3 prefix (destructive, for development use) |
-| `wiki_load` | Manual | Loads Wikipedia test data via a Kubernetes Job |
-| `session_seed` | Manual | Pre-seeds session store caches |
-| `cluster_reset` | Manual | Orchestrates full pipeline reset (flush, clear, restart) |
-| `address_heal` | Manual | Scans and repairs addressing gaps with configurable workers and rate limiting |
-
-Tasks support cron scheduling, retry with exponential backoff, configurable timeouts, and execution history. All tasks are managed via the supervisor's REST API and can be triggered from the frontend dashboard.
-
-**S3 compaction** is the most significant maintenance task. Over time, the storage engine accumulates many small SST files in object storage (the result of periodic flushes). S3 compaction runs a dedicated Kubernetes Job that opens the database directly from S3, runs a full merge compaction, and deletes orphaned SST files — all while the data service remains live and serving traffic. An age-based safety filter ensures only SSTs written before the compaction began are eligible for cleanup.
+A JWT-authenticating TCP proxy in front of the data service's key-value port, for external clients that need direct record access. After the handshake it admits only data operations; administrative and streaming operations are refused or restricted to admins.
 
 ### Frontend (Deployment, optional)
 
-A web-based dashboard providing:
+A web dashboard: system health, pipelines, bucket browser and record editor, query workbench, graph explorer, head-slot management, task management and user administration. It talks to the query service, and to the data service's administrative REST API for bucket and record management.
 
-* System health overview
-* Query interface
-* Document browser
-* User and access management
-* Encoder head monitoring
-* Data replication management
+### Node Tunnel Healer (DaemonSet, optional)
 
-The frontend communicates exclusively through the query service API.
+Repairs a known Kubernetes agent failure in which a node reports Ready while the control plane can no longer reach it. A supervisor task detects and labels the node; this per-node pod performs the restart, with guards against restart loops.
 
-### KV Proxy (DaemonSet, optional)
+### Compute Autoscaling (optional)
 
-A JWT-authenticating TCP proxy that enables direct key-value access for SDK clients. Runs on each node to provide low-latency access.
+On the reference deployment a cluster autoscaler adds compute nodes when pods cannot be placed and removes nodes that have emptied, and a supervisor task removes the leftover node records of servers that are gone. Together with elastic ingest, compute follows the backlog.
 
-### Entity Cache (DaemonSet)
+---
 
-A per-node LMDB-based cache that streams from the session store via CDC. It maintains three separate databases on shared memory (tmpfs):
+## Task Framework
 
-* **Entity LMDB** — surface form and candidate mappings for entity resolution
-* **Attribute LMDB** — attribute category lookups for the attribute head
-* **Affordance LMDB** — affordance category lookups for the affordance head
+The supervisor discovers task plugins at startup. Each task has a schedule (interval or cron), retries with backoff, a timeout and an execution history. Runtime overrides can change only scheduling, timeout and retry fields.
 
-The DaemonSet uses a dedicated lightweight image (`nam-lmdb`) that contains only the DCP adapter — no ML dependencies. All encoder head workers on the same node mount these databases read-only, converting network I/O to microsecond memory-mapped reads.
+| Task | Mode | Purpose |
+|---|---|---|
+| `wiki_load` | Manual | Loads a test corpus into `main` through a Kubernetes Job that also monitors the pipeline and reports |
+| `flush` | Manual, destructive | Flushes chosen buckets (a constant-cost column-family swap) |
+| `cluster_reset` | Manual, destructive | Orchestrates a full reset of pipeline state |
+| `s3_clear` | Manual, destructive | Deletes all objects in the object-storage bucket (development use) |
+| `address_heal` | Manual, destructive | Re-resolves entity identifiers in stored addresses against the current entity store |
+| `data_snapshot` | Manual | Copies the data tier, at a point in time, to its own prefix in object storage; writes nothing else |
+| `flush_reclaim` | Scheduled | Frees the column families earlier flushes dropped |
+| `compaction` | Scheduled | Merges small data files on the data nodes, for buckets not compacted remotely |
+| `compaction_controller` | Scheduled | Requests compaction of what each data node reports as due, and sizes the remote compaction workers |
+| `compaction_<bucket>` | Per bucket | Remote compaction of that bucket; manual where the compaction controller runs, as on the reference deployment |
+| `rc_dispatch` | Scheduled | Starts a bucket's remote compaction worker when compactions are waiting and no worker is running |
+| `catalog_cache` | Scheduled | Keeps a copy of each data node's compaction catalog on the supervisor's volume |
+| `s3_compaction` | Scheduled | Orphan-file collection in object storage for every data node (online compaction on request) |
+| `session_seed` | Scheduled | Writes head-store seed vocabulary to `session` |
+| `head_health` | Scheduled, read-only | Samples stored addresses and writes a collapse report per encoder head |
+| `ingest_scaler` | Scheduled | Decides the ingest tier's and graph builder's replica counts from the backlog (with autoscaling on) |
+| `node_cleanup` | Scheduled | Removes the leftover node records of compute servers that no longer exist (off unless enabled) |
+| `embed_pod_reaper` | Scheduled | Terminates GPU embedding pods whose owner has died |
+| `node_tunnel` | Scheduled | Detects nodes whose control-plane tunnel has silently failed |
+
+**Destructive tasks run only when triggered by hand**: never on a schedule, never by automatic retry, and the configuration API cannot change that. Task state and history never contain credentials.
+
+Tasks are managed through the supervisor API (also proxied by the query service for admins):
+
+* `GET /v1/admin/tasks`: every task's status
+* `POST /v1/admin/tasks/{type}`: trigger a run (refused while a run of that type is executing)
+* `GET /v1/admin/tasks/{type}/history`: execution history
+* `POST /v1/admin/tasks/{type}/config`: override scheduling, timeout and retry fields
 
 ---
 
 ## Network Architecture
 
 ```
-External Traffic
+External traffic
        |
        v
-  [ Query Service ]  <-- JWT-authenticated HTTP API
-  [ Frontend ]       <-- Browser-based dashboard
-  [ KV Proxy ]       <-- JWT-authenticated TCP (SDK access)
+  [ Query Service ]  <-- TLS ingress, JWT on every non-health route
+  [ Frontend ]       <-- browser dashboard (query API, data-service admin API)
+  [ KV Proxy ]       <-- JWT-authenticated TCP, data operations only
        |
-       | (cluster-internal only below this line)
+       | (cluster-internal below this line)
        v
-  [ Ingest Pods ]    <-- CDC streaming, pipeline processing
-  [ Supervisor ]     <-- Lifecycle management
-  [ Data Service ]   <-- KV storage, S3 replication
+  [ Ingest ] [ Vector Ingest ] [ Vector Index Writer ] [ Graph Builder ]
+  [ Supervisor ] [ Remote Compaction ] [ Head-Store Cache ]
+  [ Data Service ] ----> [ Object Storage ]
 ```
 
-### External boundaries
-
-* Only the query service, frontend, and KV proxy accept external connections
-* All external access requires authentication (JWT tokens)
-* Internal services are not exposed to external networks
-
-### Internal communication
-
-* Ingest pods communicate with the data service for CDC streaming and storage writes
-* The query service communicates with the data service for address lookups
-* The supervisor communicates with the data service for health monitoring
-* Pod-internal communication uses the local message bus (no network hops)
+* Only the query service, frontend and KV proxy accept external connections, and all require authentication.
+* Internal services reach the data service directly with bucket-scoped authentication.
+* Pipeline stages within an ingest pod talk over the pod-local bus.
+* The chart includes ingress network policies for the data service, supervisor, ingest and query that admit only enumerated clients; they are opt-in per deployment.
+* Encryption at rest for data volumes is available as an opt-in storage class.
 
 ---
 
-## Container Layout (Per Ingest Pod)
-
-Each ingest pod runs multiple containers in a sidecar pattern:
+## Ingest Pod Layout
 
 ```
-+----------------------------------------------------------------------+
-|  Ingest Pod                                                          |
-|                                                                      |
-|  +----------+  +-----+  +----------+                                |
-|  | CDC      |  | NLP |  | Ontology |                                |
-|  | Adapter  |  |     |  |          |                                |
-|  +----+-----+  +--+--+  +----+-----+                                |
-|       |           |           |                                      |
-|       v           v           v                                      |
-|  +--------------------------------------------------+               |
-|  |            Pod-Local Message Bus (NATS)           |               |
-|  +--------------------------------------------------+               |
-|       |           |           |          |          |                 |
-|       v           v           v          v          v                 |
-|  +--------+ +--------+ +--------+ +--------+ +---------+            |
-|  | Entity | | Entity | | Attrib | | Afford | | Context |            |
-|  | Head 1 | | Head N | | Head   | | Head   | | Head    |            |
-|  +--------+ +--------+ +--------+ +--------+ +---------+            |
-|       |           |           |          |          |                 |
-|       +-----+-----+-----+----+----------+----------+                |
-|             |                                                        |
-|             v                                                        |
-|       +------------+                                                 |
-|       | Addressing |  --> LCA encode (byte-code coordinates)         |
-|       | Worker(s)  |  --> Async WritePipeline to Data Service         |
-|       +------------+                                                 |
-|                                                                      |
-|  +------------------+  +--------------------+                        |
-|  | Attrib LMDB Sync |  | Afford LMDB Sync   |                       |
-|  +------------------+  +--------------------+                        |
-|                                                                      |
-+----------------------------------------------------------------------+
-```
-
----
-
-## Storage Layout
-
-```
-+-------------------+
-|   Data Service    |
-|                   |
-|  +-------------+  |       +-----------+
-|  | Source Store |--+------>|    S3     |
-|  | (main)      |  |       | (durable) |
-|  +-------------+  |       +-----------+
-|                   |            ^
-|  +-------------+  |            |
-|  | Address     |--+------------+
-|  | Store (nam) |  |
-|  +-------------+  |
-|                   |
-|  +-------------+  |
-|  | Session     |--+------------> S3
-|  | Store       |  |
-|  +-------------+  |
-|                   |
-|  +-------------+  |
-|  | Coordination|  |  (ephemeral, not S3-backed)
-|  | Store       |  |
-|  +-------------+  |
-+-------------------+
++---------------------------------------------------------------------+
+|  Ingest pod                                                         |
+|                                                                     |
+|  [ Change-stream adapter ]                                          |
+|            |                                                        |
+|            v                                                        |
+|  +---------------------------------------------------------------+  |
+|  |               Pod-local message bus                           |  |
+|  +---------------------------------------------------------------+  |
+|      |          |           |          |           |         |      |
+|      v          v           v          v           v         v      |
+|   [ NLP ] [ Ontology ] [ Entity xN ] [ Attribute ] [ Affordance ]   |
+|                                                   [ Context ]       |
+|      |                                                              |
+|      v                                                              |
+|  [ Accumulators ] --> [ Durable queue (persistent volume) ]         |
+|                               |                                     |
+|                               v                                     |
+|                     [ Addressing workers ] --> nam                  |
+|                                                                     |
+|  [ Head-store sync x4 ] --> session                                 |
++---------------------------------------------------------------------+
 ```
 
 ---
 
 ## Environment Configurations
 
-NAM supports multiple deployment targets through value overrides:
+| Configuration | Purpose | Typical topology |
+|---|---|---|
+| Local development | Single-node cluster for testing | 1 data node, 1-2 ingest, 1 query; optional components off |
+| Production | Multi-node cluster | 3 data nodes, an ingest tier sized to its backlog (never below one pod), vector ingest and a graph builder, object store on its own node |
 
-| Configuration | Purpose | Typical Topology |
-|---------------|---------|------------------|
-| Local development | Single-node testing | 1 data, 1-2 ingest, 1 query |
-| Cloud production | Multi-node deployment | 1-3 data, 2-4 ingest, 1-2 query |
-
-Environment-specific settings include:
-
-* Replica counts for each service
-* Resource limits (CPU, memory)
-* Storage class and volume sizes
-* External access (NodePort, LoadBalancer, Ingress)
-* S3 configuration (bucket, region, credentials)
-* Authentication secrets
+Values files set replica and worker counts, resources, node placement, storage classes and sizes, external access, object-storage configuration and which optional components run. Secrets are supplied at deploy time or by existing Kubernetes secrets, never committed.
 
 ---
 
@@ -245,79 +205,58 @@ Environment-specific settings include:
 
 ### Bootstrap
 
-1. Data service starts and initializes storage
-2. Supervisor waits for data service readiness
-3. Supervisor creates storage structures (buckets, indexes)
-4. Supervisor signals readiness
-5. Ingest pods start, claim partition leases, begin CDC streaming
-6. Query service starts, connects to data service
+1. Data nodes start and form the cluster; buckets are created.
+2. The supervisor waits for the data service, verifies buckets and bootstraps the admin account.
+3. The supervisor signals readiness.
+4. Ingest, vector ingest, the vector index writer and graph builders start, take their partitions and begin streaming.
+5. The query service starts and connects to the data service.
 
 ### Upgrade
 
-1. New container images are built and published
-2. Helm upgrade applies the new configuration
-3. Kubernetes performs rolling updates per service
-4. Ingest pods shed leases before termination, reclaim on restart
-5. No downtime for queries during rolling updates
+1. Images are built for the cluster architecture and published.
+2. `helm upgrade` applies the change; Kubernetes rolls each service.
+3. Ingest pods resume from checkpoints and from their durable queues; leases rebalance.
+4. Data pods are replaced only deliberately, one at a time.
 
-### Reset
+### Reset and reload
 
-1. Admin triggers reset via supervisor API
-2. Data stores are flushed (except session store, which preserves entity caches)
-3. Ingest pods are restarted to re-establish leases
-4. Pipeline resumes from the beginning of the CDC stream
+1. An admin flushes the data buckets through the flush task. The `session` bucket is normally kept, so head stores stay warm.
+2. No restart is needed: change-stream consumers observe the flush and carry on.
+3. A corpus is reloaded into `main` (for example with the `wiki_load` task), and every index rebuilds from it.
 
 ### Maintenance
 
-The supervisor's task framework automates recurring maintenance:
-
-1. **Scheduled tasks** (compaction, flush) run on configurable intervals or cron expressions
-2. **Manual tasks** (S3 compaction, cluster reset) are triggered via the admin API or frontend
-3. Task execution is tracked with history, retry counts, and error reporting
-4. Environment variable overrides allow per-task tuning without redeployment
-
-Tasks can be monitored and triggered through:
-* `GET /v1/admin/tasks` — list all task types and their status
-* `POST /v1/admin/tasks/{type}` — trigger a manual task execution
-* `GET /v1/admin/tasks/{type}/history` — view execution history
+Compaction, orphan-file collection, flush reclaim, ingest scaling, head-health reports, GPU reaping and node repair run as scheduled tasks. Destructive operations remain manual.
 
 ### Recovery
 
-See [Data Persistence — Recovery Model](DATA_PERSISTENCE.md) for the full recovery matrix.
+See [Data Persistence: Recovery Model](DATA_PERSISTENCE.md#recovery-model).
 
 ---
 
 ## Monitoring and Observability
 
-NAM exposes health and status endpoints on every service:
-
-* **Health checks** — liveness and readiness probes for Kubernetes
-* **Pipeline metrics** — throughput, error rates, queue depths
-* **Partition ownership** — which pod owns which partitions
-* **DCP health** — CDC adapter status, failure counts, exhaustion state
-* **System status** — aggregated view from the query service admin API
-
-### Health Recovery
-
-* DCP adapter failures trigger automatic pod restart via exhaustion detection
-* Container-level liveness probes serve as a safety net
-* Lease expiry provides automatic failover for crashed pods
-* The supervisor monitors and re-joins dropped data service nodes
+* **Health and readiness endpoints** on every service, used by Kubernetes probes.
+* **Pipeline metrics** per pipeline: enqueued, dequeued and error totals, stage queue depths, head latency.
+* **Ontology quality**: the rate of records abstaining to `BFO:0000001`.
+* **Head health**: a scheduled collapse report per encoder head (empty rate, dominance of a few values, overlap with the type segment).
+* **Partition ownership** per ingest pod, and lease/stream alignment.
+* **Query traces**: every `/v1/query` response carries a per-path `access_paths` trace and reports degraded sources.
+* **Prometheus metrics** from the query service.
+* **System status, storage statistics and pipeline errors** through the query service admin API and the dashboard.
 
 ---
 
 ## Security Boundaries
 
 | Boundary | Protection |
-|----------|-----------|
-| External to cluster | JWT authentication on all APIs |
-| Cluster to data service | SASL bucket authentication |
-| Pod to pod | Network isolation (no cross-pod pipeline traffic) |
-| S3 access | IAM credentials (mounted as secrets) |
-| Admin operations | Role-based access control (admin JWT claim) |
-| KV proxy | JWT validation before forwarding |
-
-Secrets are managed as Kubernetes secrets, never embedded in images or templates.
+|---|---|
+| External to query service | TLS ingress; JWT on every non-health route |
+| Admin operations | Admin role in the JWT; supervisor API admin-only |
+| External direct data access | KV proxy: JWT handshake, data operations only |
+| Services to data service | Bucket-scoped authentication; optional network policies |
+| Object storage | Credentials from Kubernetes secrets |
+| Data volumes | Optional encryption at rest |
 
 > See: [Security and Trust](../GOVERNANCE/SECURITY_AND_TRUST.md)
 
@@ -325,14 +264,14 @@ Secrets are managed as Kubernetes secrets, never embedded in images or templates
 
 ## Summary
 
-NAM's deployment architecture is:
+NAM's deployment is:
 
-* **Templated** — single Helm chart for all environments
-* **Containerized** — all services run as containers on Kubernetes
-* **Per-pod isolated** — pipeline processing stays within a pod
-* **Self-healing** — lease expiry, health monitoring, and liveness probes handle failures
-* **S3-backed** — durable storage without local disk dependencies
-* **Externally authenticated** — JWT on all public boundaries
-* **Horizontally scalable** — add pods to increase throughput
+* **One chart**: Helm is the only deployment path, validated at render time
+* **Multi-node storage**: replicated data tier backed by object storage
+* **Independent pipelines**: address, vector and graph consumers scale and fail separately
+* **Elastic ingest**: the ingest tier is sized from its backlog
+* **Durable ingest**: on-disk queues and acknowledge-after-write
+* **Self-maintaining**: scheduled maintenance tasks; destructive ones manual only
+* **Authenticated at the edge**: TLS and JWT on every public boundary
 
 > See also: [Pipeline Architecture](PIPELINE_ARCHITECTURE.md) | [Data Persistence](DATA_PERSISTENCE.md) | [High-Level Systems](HIGH_LEVEL_SYSTEMS.md) | [API Reference](API_REFERENCE.md)

@@ -1,199 +1,151 @@
 # What NAM Can Do
 
-NAM is designed to support **deterministic semantic retrieval** across complex, evolving bodies of knowledge.
-It excels in domains where *meaning*, *structure*, and *traceability* matter more than probabilistic recall.
+NAM is a **converged semantic index**: one query endpoint over three access paths built from the same source records.
 
-This document describes the **classes of problems NAM is explicitly built to solve**.
+* The **address path** — a deterministic semantic address index. Each record is placed at addresses made of a BFO/CCO type, an entity, and attribute, affordance and context axes, and queries reach them by prefix scans.
+* The **vector path** — an embedding index that returns the top-K records above a cosine floor. It is explicitly approximate.
+* The **graph path** — a graph of records and the entities they mention, walked from the entities a query names.
+
+NAM fuses the paths into one result list. Every result row says which paths found it (`sources`), and every response carries an `access_paths` trace of what each path did. NAM is derived from source data and is never the system of record.
+
+This document describes the **classes of problems NAM is built to solve**.
 
 ---
 
-## 1. Deterministic Semantic Retrieval
+## 1. Explainable Semantic Retrieval
 
-NAM can answer questions by **navigating semantic space**, not by ranking similarity.
+When the address path returns a record, NAM can show:
 
-When a query returns a result, NAM can explain:
+* which type partition, entity and axis values were probed
+* at which geometry the match happened (point, line, plane or cube)
+* which address of the record matched
 
-* *Which semantic dimensions were activated*
-* *Which region of space was probed*
-* *Why each record belongs to that region*
+When the vector path returns a record, it carries its cosine score. When the graph path returns a record, the trace names the seed entities and the walk statistics.
 
 This enables:
 
-* reproducible query behavior
-* auditability of results
-* confidence in why something was returned (or not)
-
-NAM is especially effective where:
-
-* correctness matters more than “best guess”
-* results must be defensible to humans or systems
-* the same question must behave the same way tomorrow
+* auditability of results, path by path
+* reproducible behaviour on the address and graph paths
+* a clear distinction between "found by structure" and "found by similarity"
 
 ---
 
-## 2. Address-Based Knowledge Retrieval
+## 2. Entity-Anchored Questions
 
-NAM stores knowledge as **addresses**, not documents.
+NAM resolves the entities a question names against the same entity store ingest built, and uses them three ways:
 
-Each record is placed into semantic space based on:
+* the address path probes the type partitions each entity is actually stored under first
+* the graph path walks from each resolved entity (several entities are walked in parallel, and records reached from more of them rank first)
+* records whose key *is* a resolved entity move to the front of the fused list
 
-* ontologies
-* entities
-* attributes
-* context
-* affordances (what the record can be used for)
+This makes NAM effective for questions such as:
 
-This allows NAM to retrieve knowledge by:
-
-* exact semantic points
-* constrained regions
-* higher-dimensional intersections
-
-In practice, this means NAM can:
-
-* retrieve facts, narratives, and context without embedding similarity
-* support precise queries over loosely structured data
-* reason across heterogeneous sources using a shared addressing model
+* "Who was X?"
+* "What is known about X and Y?"
+* "Which records involve X in this context?"
 
 ---
 
-## 3. Exploratory Querying Without Guesswork
+## 3. Free-Text and Exploratory Questions
 
-NAM supports **exploratory queries** without collapsing meaning.
+When a question names no known entity, NAM still answers:
 
-If a query does not strongly activate a single affordance or axis:
+* the address path explores type tiers in a fixed order, widening from specific to general geometry
+* the vector path finds records by embedding similarity above the cosine floor, alongside the address path
 
-* NAM does *not* fabricate intent
-* NAM widens the probe deterministically
-* results remain traceable to geometry, not heuristics
-
-This makes NAM well suited for:
-
-* investigative workflows
-* research and discovery
-* early-stage sense-making
-* ambiguous or underspecified questions
-
-Exploration in NAM is **explicit**, not accidental.
+Exploration remains traceable: the trace says which paths ran, why, and what each contributed.
 
 ---
 
-## 4. Structured Question Answering Over Unstructured Data
+## 4. Typed, Standards-Based Classification
 
-NAM can ingest:
+Every address carries a class from **BFO 2020 and CCO**, the formal upper- and mid-level ontologies. This gives:
 
-* natural language text
-* summaries
-* records
-* logs
-* documentation
-* knowledge artifacts
+* a shared, standard vocabulary for what a record is about (person, organization, geospatial region, act, information content entity, and so on)
+* subsumption-aware querying: a query can reach classes related to a hint by ancestry
+* honest abstention: when evidence is thin a record is classified at a broader class, or at `BFO:0000001`, rather than forced into a wrong one
 
-And answer questions such as:
+---
 
-* “What is known about X?”
-* “How is X typically used?”
-* “What events involved Y?”
-* “Which records describe Z in this context?”
+## 5. Structured Retrieval Over Unstructured Text
 
-Without requiring:
+NAM can ingest natural-language text, summaries, records, logs, documentation and other knowledge artifacts, and answer questions over them without:
 
 * schema-first modeling
 * predefined joins
-* handcrafted ontologies per dataset
+* hand-crafted ontologies per dataset
 
-Structure emerges from **addressing**, not preprocessing.
-
----
-
-## 5. Cross-Domain Reasoning via Ontologies
-
-NAM can reason across domains by projecting queries through:
-
-* multiple ontologies
-* multiple entity families
-* multiple semantic dimensions
-
-This enables:
-
-* linking technical, organizational, temporal, and conceptual knowledge
-* retrieving related information even when vocabulary differs
-* querying across mixed corpora without normalization into a single schema
-
-Crucially, this reasoning remains **explicit and inspectable**.
+Structure comes from **addressing at ingest**, not preprocessing.
 
 ---
 
-## 6. Incremental Knowledge Accumulation
+## 6. Relationship Discovery
 
-NAM improves its ability to answer questions as more data is ingested.
+The graph index connects records to the entities they mention, and entities to the ontology classes they are stored under. With it, NAM can:
 
-It does this by:
+* list the records that mention an entity
+* find entities that co-occur with an entity across records
+* walk outward a configurable number of hops
 
-* accumulating more addresses in semantic space
-* increasing coverage of regions, planes, and intersections
-* strengthening the geometry available for future probes
-
-This is **not** runtime learning of new strategies.
-Instead:
-
-* the *space* becomes richer
-* the *navigation rules* remain stable
-
-As a result, NAM can answer more questions over time **without changing how it reasons**.
+All of this is key-value lookups and prefix scans. No similarity is computed on the graph path.
 
 ---
 
-## 7. Domain-Specific Deployment and Training
+## 7. Continuous Ingestion
+
+Data enters NAM through a change stream from its source bucket. NAM:
+
+* picks up new and changed records automatically
+* holds every handed-off record in a durable per-pod write-ahead log until its writes have landed
+* resumes from checkpoints after restarts
+* rebuilds every derived index from the source records if needed
+
+---
+
+## 8. Incremental Knowledge Accumulation
+
+NAM answers more questions as more data is ingested:
+
+* more addresses fill more of the semantic space
+* the entity store learns new entities and surface forms
+* the graph gains records and edges
+
+This is **not** runtime learning of new rules. The *space* becomes richer while the *navigation rules* stay fixed.
+
+---
+
+## 9. Domain-Specific Deployment
 
 NAM is designed to be:
 
-* trained on customer-specific domains
-* calibrated using field data
-* extended via pluggable encoder heads
+* trained on customer-specific domains through offline artifacts (ontology codebook, LCA codec, head vocabularies)
+* extended with pluggable encoder heads, selected per slot and swappable on a running cluster for heads that keep no state (implementations developed outside NAM's tree are published in the open-source `nam-heads` package)
+* deployed as separate instances with different semantic profiles
 
-Organizations can:
-
-* tailor ontologies to their domain
-* define affordances relevant to their workflows
-* deploy multiple NAM instances with different semantic profiles
-
-All while preserving:
-
-* determinism
-* auditability
-* isolation between deployments
+All while preserving determinism on the address path, auditability, and isolation between deployments.
 
 ---
 
-## 8. Explainable Results for Humans and Systems
+## 10. Pairing With Downstream Systems
 
-Every result returned by NAM has:
+NAM returns records with their payloads, scores where applicable, and a full access trace. It is designed to feed:
 
-* a semantic explanation
-* an address-based justification
-* a traceable path from query to record
-
-This makes NAM suitable for:
-
-* decision support
-* regulated environments
-* systems that must justify outputs
-* workflows where trust is required, not assumed
+* LLMs and RAG pipelines that need grounded, attributable context
+* applications that must justify what they retrieved
+* analysts who want to explore before they ask a precise question
 
 ---
 
 ## Summary
 
-NAM is well suited for problems that require:
+NAM is well suited to problems that need:
 
-* **semantic precision**
-* **deterministic behavior**
-* **traceable reasoning**
-* **domain adaptability**
-* **long-term knowledge accumulation**
+* **explainable retrieval**, with every result attributed to the path that found it
+* **entity-anchored and typed** access to knowledge
+* **similarity search where it helps**, clearly labelled as approximate
+* **relationship discovery** without a graph database
+* **continuous, rebuildable** indexing of an evolving corpus
 
-It is not a general-purpose search engine.
-It is a **semantic memory system** designed to support sense-making at scale.
+It is not a general-purpose search engine. It is a **semantic memory layer** designed to support sense-making at scale.
 
-→ See also: [What NAM Cannot Do](WHAT_NAM_CANNOT_DO.md) | [Current Limitations](CURRENT_LIMITATIONS.md) | [Geometric Retrieval](../ARCHITECTURE/GEOMETRIC_RETRIEVAL.md)
+→ See also: [What NAM Cannot Do](WHAT_NAM_CANNOT_DO.md) | [Current Limitations](CURRENT_LIMITATIONS.md) | [Query Model](../ARCHITECTURE/QUERY_MODEL.md) | [Vector Search](../ARCHITECTURE/VECTOR_SEARCH.md) | [Graph Index](../ARCHITECTURE/GRAPH_INDEX.md)

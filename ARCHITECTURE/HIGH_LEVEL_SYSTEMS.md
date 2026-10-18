@@ -2,476 +2,260 @@
 
 *A conceptual view of NAM*
 
-This document describes NAM at the **system level** — how information flows through it, how responsibilities are separated, and how the major components interact.
+This document describes NAM at the **system level**: how information flows through it, how responsibilities are separated, and how the major components interact.
 
-This is **not** an implementation guide.
-No code, no APIs, no infrastructure assumptions.
+It is not an implementation guide. Where it names a storage bucket or a protocol, it does so to make the shape of the system concrete, not to document an interface.
 
 ---
 
 ## System Overview
 
-NAM is a **semantic memory system** that:
+NAM is a **converged semantic index**. It reads records from a source store and builds three derived indexes over them, all served through one query endpoint:
 
-1. Accepts unstructured inputs (text, events, records)
-2. Projects them into a deterministic semantic address space
-3. Stores them in a navigable, partitioned structure
-4. Answers queries by **geometric navigation**, not similarity or ranking
+1. **The semantic address index** (the core). Every record is projected into deterministic addresses: an ontology type, an entity anchor, and three coded semantic axes (attribute, affordance, context). Queries are answered by key lookups and prefix matches over those addresses.
+2. **The vector index.** Every record is also embedded and filed in a vector index. Queries are answered by reading the part of the index nearest the question and ranking the candidates by cosine similarity. This path is explicitly approximate: it returns the top results above a similarity floor.
+3. **The graph index.** Records, the entities they mention, and the ontology classes each entity is stored under are linked by small graph records derived from the addresses. Queries are answered by walking outward from the entities a question names.
 
-At a high level, NAM has **two symmetric paths**:
+A query runs on one or more of these paths. The results are fused into one list; every row lists the `sources` (paths) that found it, and every response carries an `access_paths` trace of what each path did and why.
 
-* **Ingest path** — how knowledge enters memory
-* **Query path** — how knowledge is navigated and retrieved
-
-Both paths rely on the **same semantic primitives**.
+NAM is **derived state**. The source store is the system of record; every index can be rebuilt from it.
 
 ---
 
-## Core Components (Conceptual)
+## The Two Directions
 
-NAM consists of eleven major conceptual components:
+| | Ingest | Query |
+|---|---|---|
+| Entry point | Change stream from the source store | One HTTP endpoint |
+| Address index | NLP, ontology, encoder heads, bundling, address construction, write | Same NLP and heads, same bundling, then planning and probes |
+| Vector index | Embed the record and file it in the index | Embed the question, read the part of the index near it, rank by cosine |
+| Graph index | A separate builder follows address writes and writes graph records | Walk from the entities resolved in the question |
 
-1. **Input Interfaces**
-2. **NLP Pipeline**
-3. **Ontology Classifier**
-4. **Encoder Heads**
-5. **Address Builder**
-6. **Storage Layer**
-7. **Query Planner**
-8. **Execution Engine**
-9. **Access Control Layer**
-10. **Lifecycle Manager**
-11. **Entity Cache**
-
-Each component has a single responsibility and is **independently evolvable**.
+The address path is **symmetric by construction**: ingest and query use the same parser, the same encoder heads, the same entity resolver and the same coordinate codec. That symmetry is what makes deterministic retrieval possible.
 
 ---
 
-## 1. Input Interfaces
+## Core Components
 
-Input interfaces are how data enters NAM.
+1. **Source store and change stream**
+2. **Ingest pipeline** (per ingest replica)
+3. **NLP stage**
+4. **Ontology head**
+5. **Encoder heads** (entity, attribute, affordance, context)
+6. **Address builder**
+7. **Graph index builder**
+8. **Vector ingest** (and its index writer)
+9. **Data service** (storage)
+10. **Query service** (orchestrator, address planner and runner, vector search, graph walker)
+11. **Head-store cache** (per node)
+12. **Supervisor** (lifecycle and task framework)
+13. **Access control**
 
-Examples:
-
-* CDC (change data capture) streams
-* Batch records
-* Documents
-* Questions or prompts
-
-Key properties:
-
-* Inputs are opaque text or payloads
-* NAM does not assume structure
-* No schema is required at input time
-
-The interface layer does **not** interpret meaning.
+Each has a single responsibility and evolves independently.
 
 ---
 
-## 2. NLP Pipeline
+## 1. Source Store and Change Stream
 
-The NLP pipeline is a **dedicated linguistic analysis stage** that sits between input interfaces and encoder heads.
+Records enter NAM by being written to the **source store** (the `main` bucket of the data service). NAM does not take records through an import API.
 
-It performs:
+Each consumer of the source store follows its **change stream**: a per-partition, ordered stream of mutations with resumable checkpoints. The address pipeline, the vector pipeline and the graph builder are independent consumers, each with its own checkpoints, so one can lag or restart without affecting the others.
 
-* Tokenization
-* Part-of-speech tagging
-* Lemmatization
-* Named entity recognition
-* Dependency parsing
+---
 
-### Key architectural properties
+## 2. Ingest Pipeline
 
-The NLP pipeline is:
+Each ingest replica is a self-contained processing unit with a pod-local message bus. It claims a share of the source partitions, streams their changes, and runs every record through the staged pipeline: NLP, ontology, encoder heads, a join of all head results per record, and addressing.
 
-* **Rule-based** — no neural models, no learned weights, no GPU required
-* **Deterministic** — identical input always produces identical linguistic output
-* **Fast** — throughput exceeds 13,000 parses per second on a single core
-* **Mandatory** — every record passes through NLP before reaching encoder heads
+Two properties matter at system level:
 
-The NLP pipeline exists as a separate component because:
-
-* All encoder heads depend on its output
-* Linguistic analysis is expensive and should happen exactly once per record
-* Deterministic parsing is the foundation on which deterministic addressing is built
+* **Durable hand-off.** A record whose head results are complete is written to a durable on-disk queue before it is addressed. The queue entry is acknowledged only after the record's address writes have landed. A failed write puts the entry back for redelivery. On the reference deployment every earlier hop between stages is a durable on-disk stream too, and each stage acknowledges its input only after its output has been handed on.
+* **Backpressure.** Every stage publishes its queue depth. When a stage fills, the change-stream reader slows down, and flow control propagates back to the data service.
 
 → See: [Pipeline Architecture](PIPELINE_ARCHITECTURE.md)
 
 ---
 
-## 3. Ontology Classifier
+## 3. NLP Stage
 
-The ontology classifier determines the **semantic type** of a record.
+A **rule-based** linguistic analysis stage: tokenization, part-of-speech tagging, lemmatization, named entity recognition and dependency parsing.
 
-It assigns one or more ontology labels from a controlled vocabulary:
-
-* **Tier 1** (most general): person, group, organization, location, place, object, concept
-* **Tier 2** (temporal): time, event, action, process, sequence
-* **Tier 3** (state): state, change, cause, effect, condition
-* **Tier 4** (attributes): attribute, quantity, relationship, ownership, identifier, record, document, question, goal
-
-### Key architectural properties
-
-The ontology classifier is:
-
-* **Separate from encoder heads** — it runs after NLP but before heads, providing type context that informs entity resolution and address partitioning
-* **Deterministic** — classification is based on linguistic features, not probabilistic models
-* **Exhaustive** — every record receives at least one ontology label; there is no "unknown" or "other" fallback
-
-Every record maps to a real semantic type — there is no "unknown" or "other" fallback. "Concept" serves as the broadest valid category.
+* **Deterministic.** Identical input always produces identical output.
+* **No learned weights and no GPU.**
+* **Mandatory.** Every encoder head reads the same shared parse. A record that reaches a head without one is parsed there with the same rule parser, so no head runs without a parse.
 
 ---
 
-## 4. Encoder Heads
+## 4. Ontology Head
 
-Encoder heads are **pluggable, deterministic semantic projectors**.
+The ontology head answers *"what kind of thing is this record about?"* with a class from **BFO 2020 and the Common Core Ontologies (CCO v2.2)**, a certified, standards-based class hierarchy.
 
-They:
+* Each sentence is scored against a trained codebook of class centroids (the default implementation of the ontology slot).
+* An uncertain sentence backs off to the deepest ancestor class the evidence supports.
+* When nothing beyond existence can be asserted, the head abstains with the root class, `BFO:0000001` (entity). The abstain rate is tracked as a quality metric.
+* The record's class is the vote of its sentences.
 
-* Inspect input text
-* Extract specific classes of signals (entities, attributes, context, ontology, affordance)
-* Emit symbolic coordinates for address construction
-
-### Key architectural properties
-
-Encoder heads are:
-
-* **Independently managed**
-* **Independently trained**
-* **Independently deployable**
-
-A system may:
-
-* Add new heads
-* Remove unused heads
-* Retrain a single head without affecting others
-* Maintain different head configurations per customer or domain
-
-### Training model
-
-Encoder heads are trained **offline**, often using:
-
-* Customer-specific corpora
-* Domain-specific language
-* Field-generated data (logs, documents, events)
-
-Once trained:
-
-* A head’s behavior is **fixed at runtime**
-* Its outputs are deterministic
-* It does not adapt or learn during queries
-
-This allows NAM to be **domain-aware without being non-deterministic**.
-
-Encoder heads exist to **translate language into structure**, not to reason or retrieve.
-
-NAM currently uses five encoder heads:
-
-* **Entity** — extracts named entities, resolves them to canonical hash-based identifiers via a shared entity store
-* **Attribute** — extracts adjectives and descriptors linked to entities via dependency parsing
-* **Affordance** — extracts verbs and actions, with synonym folding to canonical forms
-* **Context** — extracts situational and temporal signals at the sentence level
-* **Ontology** — classifies the semantic type of the record (see Ontology Classifier above)
-
-The **entity head** is the most resource-intensive (due to entity resolution I/O) and is therefore parallelized with multiple workers per ingest replica. Other heads run as single instances per replica.
+The record's class becomes the **type segment of every address the record emits**. All of a biography's addresses, including one anchored on an award the person won, carry the class of the person.
 
 ---
 
-## 5. Address Builder
+## 5. Encoder Heads
 
-The address builder composes encoder outputs into **addresses**.
+Encoder heads are pluggable, deterministic projectors from the shared parse to symbolic coordinates. Each head fills a **slot**; a slot manifest that ingest and query both read records which implementation fills each slot, and an admin can swap a stateless head's implementation on a running cluster. Head implementations developed outside NAM's own tree are published in the open-source `nam-heads` package.
 
-It:
+| Head | Answers | Feeds |
+|---|---|---|
+| **Entity** | Which specific things are referred to? | The entity anchor (a hash of the canonical name) |
+| **Attribute** | What qualities are asserted? | Axis x |
+| **Affordance** | What action or interaction is described? (synonyms folded to canonical verbs) | Axis y |
+| **Context** | Under what circumstances does it apply? (time periods, places, institutions, fields) | Axis z |
 
-* Combines ontology, entity anchors, and axis coordinates
-* Scopes address construction to entities — each semantic component is associated only with the entities it actually modifies (entity-anchored bundling)
-* Applies namespace and partition rules
-* Produces one or more deterministic addresses per record
+On the reference deployment the entity head runs first; a deterministic sentence resolver then ties each sentence's statements to the resolved entities, and the attribute, affordance and context heads run in parallel on the result.
 
-Key idea:
+Heads are trained or curated offline and fixed at runtime. Their vocabularies (entity surface forms, attribute and affordance categories, context values) live in **head stores** in the `session` bucket, which grow as ingest sees new terms and act as a warm cache across reloads.
 
-> Address construction is the *only* place where semantic meaning becomes spatial structure.
+The entity head also provides the **one entity resolver** the system uses: the query service resolves the entities in a question with the same code and the same store that ingest used to anchor addresses.
 
-Entity-anchored bundling ensures that addresses reflect the linguistic structure of the input, not a combinatorial explosion of all possible component combinations. This bounds address count per record to what the text actually expresses.
+---
 
-Coordinate values are encoded through **LCA (Learned Codec for Addressing)** — a learned byte-code representation that provides geometric structure. Semantically similar strings map to nearby codes, enabling neighborhood-based fan-out at query time.
+## 6. Address Builder
 
-Once an address is built, it is immutable.
+The address builder turns head output into keys.
 
-The address builder is:
+* **Entity-anchored bundling.** The dependency parse decides which attributes and actions belong to which entity, so a record emits addresses for what its text actually says, not for every combination of its parts.
+* **Coordinate coding (LCA).** Each axis value is encoded by its axis head's learned codec (a character CNN with two-stage residual quantization) into a code pair `lca:coarse:fine`. `lca:0:0` marks an empty axis. Similar strings get nearby codes, which the query planner exploits.
+* **A covering index.** Addresses are stored so that any set of specified axes is a direct match on something stored, with no wildcard copies and nothing derived at read time. The reference deployment stores each partition's (tenant, partition, type, entity) addresses together and reads a planning tier in a fixed number of batched round trips. The alternative **rotations layout** stores each address under three cyclic rotations of its axes.
 
-* Stateless
-* Deterministic
-* Shared by ingest and query paths
+Address shape:
+
+```
+tenant | partition | TYPE | entity | attribute | affordance | context
+```
+
+Address construction is deterministic, stateless and shared by ingest and query.
 
 → See: [Addressing Model](ADDRESSING_MODEL.md) | [Ingestion Model](INGESTION_MODEL.md)
 
 ---
 
-## 6. Storage Layer
+## 7. Graph Index Builder
 
-The storage layer persists addresses and record references.
+A separate service that follows the change stream of the **address** store and writes the graph index: record-entity edges in both directions, and the ontology classes each entity is stored under. The builder shards by partition.
 
-Conceptually, it provides:
+The graph builder is off the ingest acknowledgement path. The graph index therefore **lags** the address index slightly and never slows addressing down.
 
-* Keyed lookup by address
-* Deterministic partitioning
-* Read-only navigation during queries
-
-### Swappable by design
-
-The storage layer is intentionally **decoupled from semantics**.
-
-It:
-
-* Does not interpret meaning
-* Does not execute logic
-* Does not inspect payloads
-
-As a result, storage backends are **fully swappable**, including:
-
-* Local file-based stores
-* Embedded databases
-* Distributed key-value systems
-* Cloud-managed storage services
-
-Different deployments may choose different storage implementations **without changing encoder behavior, addressing logic, or query planning**.
-
-### Current implementation
-
-The current storage layer is a **distributed key-value store backed by object storage (S3-compatible)**:
-
-* Data is written locally, then asynchronously replicated to object storage
-* On restart, only metadata is downloaded; data files are fetched on demand
-* This enables fast cold starts (seconds, not minutes) and efficient resource use
-* All address state is rebuildable from source data — the address index is derived, never authoritative
-
-→ See: [Data Persistence](DATA_PERSISTENCE.md) for the full persistence model
-
-Critical property:
-
-> Storage is address-aware, not content-aware.
+→ See: [Graph Index](GRAPH_INDEX.md)
 
 ---
 
-## 7. Query Planner
+## 8. Vector Ingest
 
-The query planner translates a user query into an **execution plan**.
+A separate pipeline with its own change-stream consumers and its own durable queue. Its workers embed each record, and a single index writer files the embeddings into the vector index.
 
-It:
+Embedding runs on CPU by default. When a backlog builds, a GPU burst tier is brought up through an external GPU registry and released after a period with no work.
 
-* Detects affordances (what kind of question is being asked)
-* Selects ontology tiers
-* Determines which regions of address space to scan
-* Controls widening and fallback behavior
-
-The planner does **not**:
-
-* Rank results
-* Score similarity
-* Learn from feedback
-
-The planner also:
-
-* Selects the optimal covering index rotation for each set of specified axes
-* Captures **ontology hints** from the bundler (what types were observed in the query text)
-* Reorders ontology tiers so hinted tiers are scanned first
-* Caps total planned scans to a configurable budget
-
-Planning is structural, not statistical.
+→ See: [Vector Search](VECTOR_SEARCH.md)
 
 ---
 
-## 8. Execution Engine
+## 9. Data Service
 
-The execution engine carries out the plan.
+NAM's own distributed key-value store with an ordered change stream, prefix scans and append. It runs as a multi-node tier with partition (vbucket) replicas.
 
-It:
+| Bucket | Holds | Engine |
+|---|---|---|
+| `main` | Source records | RocksDB-Cloud, one column family per partition |
+| `session` | Head stores (entity, attribute, affordance, context vocabularies) | RocksDB-Cloud |
+| `metrics` | Leases, checkpoints, pipeline counters, user accounts | RocksDB-Cloud |
+| `nam` | Semantic addresses | Raw RocksDB, one shared column family, prefix bloom filters |
+| `graph` | Graph index records | Raw RocksDB |
+| `vector` | Vector index records | Raw RocksDB |
 
-* Scans the storage layer using prefix scans on the covering index
-* Navigates points, lines, planes, and volumes in address space
-* Deduplicates records
-* Returns stable, deterministic results
+Storage is mirrored to S3-compatible object storage.
 
-Execution uses **progressive fan-out**:
+→ See: [Data Persistence](DATA_PERSISTENCE.md)
 
-* Scans are executed in specificity order (most specific first)
-* Ontology tiers are scanned in hint-prioritized order
-* If a tier yields enough matches (above a satisfaction threshold), remaining tiers are skipped
-* Total scans and fetches are budget-capped
+---
 
-Execution is:
+## 10. Query Service
 
-* Bounded
-* Ordered
-* Observable
-* Early-terminating when satisfaction is reached
+The only external API for retrieval. Its **orchestrator** routes each query across the three paths and fuses the results.
+
+* **Routing.** A caller may pin paths explicitly. Otherwise a routing policy decides from cheap signals: the address and vector paths always run; the graph path runs when the question names an entity the store knows.
+* **Address path.** Canonicalize the question, resolve its entities, encode it with the same heads as ingest, bundle, then plan probes of address regions: first the classes each resolved entity is actually stored under, then ontology tiers by BFO branch, with a probe of the unclassified class as a safety net. Codebook neighbours widen each axis. Regions widen from points to lines, planes and cubes until enough distinct records are found.
+* **Vector path.** Embed the question and return the top results above a cosine floor.
+* **Graph path.** Seed a walk from each resolved entity (up to three) and walk them in parallel.
+* **Fusion.** Rows are de-duplicated by record pointer, each row lists its `sources`, and a record that *is* one of the resolved entities moves to the front.
+
+Partial failures are reported, never hidden: a response says which paths could not read storage.
+
+→ See: [Query Model](QUERY_MODEL.md) | [API Reference](API_REFERENCE.md)
+
+---
+
+## 11. Head-Store Cache
+
+Every compute node runs a cache process that follows the `session` bucket's change stream and keeps memory-mapped copies of the four head stores on node-local shared memory. Encoder head workers read them without a network round trip. Writes made by heads during ingest are relayed to the store through a single writer per head, so each cache has exactly one writer.
+
+The cache is disposable: it rebuilds from the change stream.
+
+---
+
+## 12. Supervisor
+
+A single-instance service that gates readiness during bootstrap, monitors health, and runs the **task framework**: loads, flushes, compactions, object-storage maintenance, ingest scaling, head-health reports, GPU reaping and node repair. Destructive tasks run only when triggered by hand.
+
+→ See: [Deployment Architecture](DEPLOYMENT_ARCHITECTURE.md)
+
+---
+
+## 13. Access Control
+
+* The query service requires a signed token (JWT) on every endpoint other than login, password reset by token, health, readiness and metrics; admin endpoints require the admin role.
+* The supervisor's admin API requires an admin token and refuses to run without its signing secret.
+* Direct key-value access goes through a JWT-authenticating proxy that admits only data operations.
+* The query endpoint is served over TLS.
+
+→ See: [Security and Trust](../GOVERNANCE/SECURITY_AND_TRUST.md)
 
 ---
 
 ## End-to-End Flow (Ingest)
 
-1. Input arrives via change data capture
-2. NLP pipeline analyzes linguistic structure (tokenization, POS, dependencies)
-3. Ontology classifier determines semantic type
-4. Encoder heads extract semantic signals in parallel
-5. Address builder constructs entity-anchored addresses
-6. Addresses, record references, and graph index entries are stored
-
-No additional inference occurs later.
-
----
+1. A record is written to the source store.
+2. An ingest replica that owns its partition streams the change.
+3. NLP parses it once; the ontology head types it; the entity head resolves its entities, and the attribute, affordance and context heads run in parallel.
+4. Head results are joined per record and queued durably.
+5. The addressing stage bundles, codes and writes the addresses, then acknowledges the queue entry.
+6. Independently, the graph builder follows the address writes, and the vector pipeline embeds the record.
 
 ## End-to-End Flow (Query)
 
-1. Query arrives
-2. Encoder heads project intent into semantic signals
-3. Planner builds an execution plan
-4. Execution engine navigates stored addresses
-5. Matching records are returned
+1. A question arrives at the query service.
+2. The orchestrator gathers routing signals (resolved entities, intent) and starts the chosen paths in parallel.
+3. Each path returns records; the orchestrator fuses them and records a trace per path.
+4. Payloads are attached from the source store, and the response returns rows, sources and the trace.
 
-Runtime behavior never mutates stored state.
-
----
-
-## 9. Access Control Layer
-
-The access control layer mediates all external access to NAM.
-
-It:
-
-* Authenticates clients before allowing access to any internal service
-* Validates signed tokens on every request
-* Enforces role-based access (e.g. admin vs user)
-* Rate-limits sensitive operations
-* Produces structured audit logs for every access
-
-### Key architectural properties
-
-The access control layer is:
-
-* **Mandatory at external boundaries** — no unauthenticated path exists from outside the cluster to internal services
-* **Optional at internal boundaries** — services within the cluster trust network isolation
-* **Stateless per request** — authentication decisions are made from the token alone, no session state is maintained
-* **Independent of the semantic pipeline** — authentication does not influence addressing, encoding, or retrieval
-
-The access control layer can be deployed as:
-
-* Middleware within the query service
-* A standalone proxy at the network edge
-* Both, for defense in depth
-
-> See: [Security and Trust](../GOVERNANCE/SECURITY_AND_TRUST.md)
-
----
-
-## 10. Lifecycle Manager
-
-The lifecycle manager handles cluster-level operations that must happen before — and during — normal system operation.
-
-It:
-
-* Waits for the data layer to become available
-* Coordinates node membership and data distribution
-* Verifies that expected storage structures exist
-* Creates initial administrative credentials
-* Signals readiness to downstream components
-* Monitors cluster health on a recurring basis
-* Re-joins dropped nodes automatically
-
-### Key architectural properties
-
-The lifecycle manager is:
-
-* **A single instance** — only one runs per cluster (no leader election needed)
-* **Idempotent** — repeated execution of any lifecycle action produces the same result
-* **Gating** — ingest and query services do not start until the lifecycle manager confirms readiness
-* **Separate from the semantic pipeline** — lifecycle management does not process records, build addresses, or serve queries
-
-The lifecycle manager exists because distributed systems require explicit coordination during bootstrap and recovery. Without it, services start against uninitialized storage, miss configuration, or race during node joins.
-
----
-
-## 11. Entity Cache
-
-The entity cache provides **node-level shared memory** for entity resolution.
-
-It:
-
-* Maintains a local copy of entity surface form mappings
-* Serves lookups in microseconds via memory-mapped reads
-* Is written by a dedicated per-node process that follows the entity store's change stream
-* Is shared across all entity resolution workers on a node (read-only)
-
-### Key architectural properties
-
-The entity cache is:
-
-* **Per-node, not per-process** — a single writer serves all consumers on the same node
-* **Eventually consistent** — follows the authoritative store's change stream, not a snapshot
-* **Read-only from consumers** — workers never write to the cache directly
-* **Disposable** — if corrupted or stale, the cache rebuilds automatically from the change stream
-
-The entity cache exists because entity resolution is the most I/O-intensive operation in the encoding pipeline. Without node-level caching, every entity lookup crosses the network to the data service. The cache converts network I/O into memory reads.
-
----
-
-## Symmetry Between Ingest and Query
-
-A core architectural principle of NAM is **symmetry**:
-
-| Ingest                          | Query                         |
-| ------------------------------- | ----------------------------- |
-| Encoder heads project meaning   | Encoder heads project intent  |
-| Address builder structures data | Planner structures navigation |
-| Storage persists geometry       | Execution navigates geometry  |
-
-This symmetry enables determinism, explainability, and rebuildability.
-
-The access control layer, lifecycle manager, and entity cache are **cross-cutting** — they serve both paths and operate independently of semantic logic.
-
----
-
-## What NAM Is *Not*
-
-At the system level, NAM is explicitly **not**:
-
-* A vector database
-* A knowledge graph engine
-* A search index
-* A rules engine
-* A runtime learning system
-
-NAM may integrate with these — but it is not them.
+Queries never mutate stored state.
 
 ---
 
 ## Architectural Guarantees
 
-NAM provides the following guarantees by design:
+* The address path is deterministic: the same input and artifacts produce the same addresses and the same scans.
+* The vector path is honest about being approximate: it returns what clears a similarity floor, with the work it did reported.
+* Every result names the path that produced it.
+* Every index is rebuildable from the source store.
+* Records handed off to the address pipeline are not lost to a pod restart.
+* All external access is authenticated.
 
-* Deterministic execution
-* Pluggable, independently trained encoder heads
-* Swappable storage backends
-* Offline semantic training
-* Online-only navigation
-* Authenticated access at every external boundary
-* Automated lifecycle management and readiness gating
-* Predictable deployment behavior
+---
 
-These guarantees are more important than individual optimizations.
+## What NAM Is Not
 
+* Not a system of record.
+* Not a vector database: embeddings are one access path among three, not the model of meaning.
+* Not a knowledge graph engine: the graph index is derived from addresses, not curated.
+* Not a generator: NAM retrieves; it does not summarize or answer.
 
-## Why this architecture matters
-
-This separation of concerns ensures that:
-
-* Customer-specific semantics can be trained safely
-* Storage choices do not constrain meaning
-* Queries remain explainable and reproducible
-* Systems can evolve without semantic drift
-
-NAM is designed to be **operationally boring** — and semantically powerful.
-
-→ See also: [Geometric Retrieval](GEOMETRIC_RETRIEVAL.md) | [Ingestion Model](INGESTION_MODEL.md) | [Query Model](QUERY_MODEL.md) | [Pipeline Architecture](PIPELINE_ARCHITECTURE.md) | [Data Persistence](DATA_PERSISTENCE.md) | [Design Principles](../PHILOSOPHY/DESIGN_PRINCIPLES.md)
-
+→ See also: [Geometric Retrieval](GEOMETRIC_RETRIEVAL.md) | [Ingestion Model](INGESTION_MODEL.md) | [Query Model](QUERY_MODEL.md) | [Pipeline Architecture](PIPELINE_ARCHITECTURE.md) | [Data Persistence](DATA_PERSISTENCE.md) | [Vector Search](VECTOR_SEARCH.md) | [Graph Index](GRAPH_INDEX.md) | [Design Principles](../PHILOSOPHY/DESIGN_PRINCIPLES.md)

@@ -1,298 +1,189 @@
 # The NAM Query Model
 
-*How questions become geometric scans*
+*How a question becomes a set of access-path executions*
 
-This document explains how a natural-language question is transformed into a deterministic set of storage operations in NAM.
+This document explains what happens between a query arriving at `POST /v1/query` and results coming back.
 
-NAM does not “search” in the traditional sense.
-It **plans** a query and **executes prefix scans** against known regions of semantic space.
-
----
-
-## Queries Are Not Requests for Answers
-
-In NAM, a query is **not** a request for a ranked list of documents.
-
-A query is:
-
-> A request to explore a specific region of semantic space.
-
-NAM’s job is not to decide *what the answer is*.
-Its job is to decide *where meaningful answers could exist* — and retrieve what is already there.
+NAM is a converged index. A query is planned across up to three access paths built from the same source records, the paths run in parallel, and their results are fused into one list. Every result row says which path found it, and every response carries a trace of what each path did.
 
 ---
 
-## High-Level Query Flow
+## The Three Access Paths
 
-At a conceptual level, every query follows this flow:
+| Path | What it searches | Nature |
+|---|---|---|
+| **address** | The semantic address index (`nam` bucket) by key lookups and prefix matches | Deterministic, structural |
+| **vector** | The vector index (`vector` bucket): top-K above a cosine floor | Explicitly approximate |
+| **graph** | The graph index (`graph` bucket), walked outward from resolved entities | Deterministic, relational |
 
-1. **Parse the question**
-2. **Encode meaning using the same heads as ingest**
-3. **Determine query mode**
-4. **Plan prefix scans on the covering index**
-5. **Execute scans**
-6. **Return records (unranked or lightly ordered)**
-
-No step is optional.
-No step is probabilistic.
+The address path is the core and is always run when routing is automatic. The other two are described in [Vector Search](VECTOR_SEARCH.md) and [Graph Index](GRAPH_INDEX.md).
 
 ---
 
-## Step 1: Query Parsing (Input Normalization)
+## Orchestration
 
-The raw query text is accepted as-is.
+### Routing
 
-NAM does not:
+A query is routed in one of two ways:
 
-* Rewrite the question
-* Simplify grammar
-* Ask clarifying questions
-* Hallucinate intent
+* **Pinned** — the caller passes `paths` (for example `["vector"]` or `["address", "graph"]`). Exactly those paths run.
+* **Automatic** — the routing policy decides from cheap signals computed before anything executes: the query's intent and the entities resolved from it.
 
-The system assumes:
+The routing policy is:
 
-> The user’s ambiguity is meaningful.
+| Signals | Paths run |
+|---|---|
+| No entity resolved | address + vector |
+| At least one entity resolved | address + vector + graph |
 
-Ambiguity is preserved, not eliminated.
+The graph path needs a resolved entity to start from, so it runs only when one exists. The vector path stays on even when an entity resolves, because the address path alone cannot reach every relevant record.
 
----
+Routing is a pluggable policy. Every decision records its reason in the trace.
 
-## Step 2: Encoder Heads Run in Query Mode
+### Parallel execution
 
-The same encoder heads used at ingest are invoked again — but in **query mode**.
+The chosen paths run concurrently. A path that fails becomes an `error` entry in the trace; the other paths still answer.
 
-Examples:
+### Thin-result fallback
 
-* Entity head extracts candidate entities
-* Ontology head activates possible semantic domains
-* Affordance head identifies what kind of action or intent is implied
-* Context head supplies environmental or situational signals
+In automatic mode, if the vector path did not run and the address path returned fewer results than a configured fraction of the requested limit (never fewer than a small minimum, never more than the limit), the vector path runs as a fallback. Its trace entry is marked `fallback` and its reason states the counts. The current routing policy always runs the vector path in automatic mode, so the fallback applies to a policy that leaves it out.
 
-Entity resolution at query time is type-scoped: a person lookup for "Einstein" only searches within person-type entities, preventing cross-type semantic bleed. Verbs are treated as first-class entities — "study" resolves through the same entity store as "Einstein," with synonym folding to match canonical forms established at ingest.
+### Fusion
 
-**Critical rule:**
-Query encoders must obey the same axis definitions and vocabularies as ingest.
+Results are fused by data pointer (the source record's identity):
 
-No head may invent:
+1. Address results first, in the order the address path produced them.
+2. Vector hits next. A hit for a record the address path already returned adds `vector` to that row's `sources` and attaches its `cosine`; otherwise it becomes a new row.
+3. Graph results last, the same way.
+4. Rows whose record key names one of the resolved entities move to the front, whichever path found them. A query about a person puts that person's own record first.
 
-* New axes
-* New axis values
-* New semantics
+Each fused row carries:
 
----
+* `data_pointer` — where the source record lives
+* `sources` — the paths that found it, for example `["address", "vector"]`
+* `cosine` — present exactly when the vector path contributed to the row
+* `address_meta` — the matched address details when the address path found it. For a row only the vector or graph path found, it is the address the record is stored under when a bounded lookup finds one, marked as stored rather than matched; otherwise it is empty
+* `payload` — the source record, attached after fusion
 
-## Step 3: Query Mode Determination
+### The `access_paths` trace
 
-NAM does not treat all queries equally.
+Every response lists one entry per path:
 
-Based on encoder output, the planner selects one of two **query modes**:
+| Field | Meaning |
+|---|---|
+| `path` | `address`, `vector` or `graph` |
+| `status` | `used`, `fallback`, `error`, `skipped` (automatic routing chose not to run it) or `not_requested` (the caller pinned other paths) |
+| `reason` | Why the path ran or did not |
+| `ms` | Time spent |
+| `stats` | Path-specific counters: geometry level and probes for address; the work done and the top cosine for vector; hops, edges and seed entities for graph |
+| `results_contributed` | Rows this path added that no earlier path had |
 
-### Exploratory Mode (default)
+Entries may also carry `unavailable` (the path hit a data-service error) and `read_failures` (storage reads that failed underneath and would otherwise look like "no data").
 
-Used when no specific affordance verb is recognized in the query. The system explores broadly across ontology tiers.
+### Degraded storage is reported, never hidden
 
-* Ontology tiers are scanned in a predefined order, with tiers containing the bundler's ontology **hints** scanned first
-* Each tier groups related ontologies (e.g., Tier 1: person, object, location, concept; Tier 2: time, event, action; etc.)
-* The system scans progressively from most-specific addresses to least-specific within each tier
+* If some reads failed but results exist, the response is `200` with `partial: true`, `failed_sources`, and a `degraded` list saying which source failed and why.
+* If reads failed and nothing came back, or the query exceeded its time budget, the response is `503` with a `Retry-After` header.
 
-### Affordance Mode
-
-Used when an affordance verb is recognized (e.g., "Where is...", "What did... do", "Who leads..."). The affordance selects specific ontology tiers and execution strategies.
-
-* Affordance verbs undergo synonym folding to match canonical forms established at ingest
-* Each affordance maps to a set of ontology-role capabilities (pre-computed)
-* Probing is narrower and more targeted than exploratory mode
-
-The mode is **derived**, not specified by the user.
-
----
-
-## Step 4: Ontology Selection (Domains to Probe)
-
-The ontology head activates a *set* of candidate domains.
-
-Example:
-
-```
-['person', 'location', 'object', 'activity']
-```
-
-Important rules:
-
-* Ontologies are allowed to over-activate
-* Over-activation is safer than exclusion
-* Ontology selection never filters records directly
-
-Ontologies only define *where scans may be constructed*.
+A caller can always tell "found nothing" from "could not look."
 
 ---
 
-## Step 5: Address Planning
+## The Address Path in Detail
 
-This is the core of the query model.
+### 1. Canonicalize
 
-The planner:
+The query text is normalized by a rule-based canonicalizer:
 
-* Takes ontology + entity + axis signals from encoding
-* Captures **ontology hints** from the bundler (what types the bundler actually observed)
-* Reorders ontology tiers so that hinted tiers are probed first
-* Constructs a **finite, budget-bounded set of prefix scan queries**
-* Orders them from most specific to most general within each tier
+* Articles are stripped.
+* **Intent** is detected from the interrogative (`who` → identity, `where` → location, `when` → temporal, `what is` → definition, `how` → process, `why` → causal, `which` → selection).
+* Interrogatives and leading copulas/auxiliaries are removed; intent already carries their signal.
 
-Each planned query selects the optimal rotation of the covering index where the specified axes form a contiguous key prefix, then constructs a prefix scan:
+### 2. Resolve entities
 
-* **Point scan** (all axes specified) — prefix covers exact coordinates
-* **Line scan** (two axes specified) — prefix covers two coordinates, scans across the third
-* **Plane scan** (one axis specified) — prefix covers one coordinate, scans across two others
-* **Volume scan** (no axes specified, partition only) — scans entire partition
+Entities are resolved against the **session store** — the same store ingest writes surface forms into — using the **same resolver as the ingest entity head**:
 
-No “contains”, no “similar to”, no post-filtering.
+* Candidates come from the entity head's own query-mode extraction, plus contiguous multi-word spans of the original query looked up as exact stored names.
+* A mention covered by a longer resolved mention is dropped (the longest specific name wins).
+* Bare numerals, roman numerals, very short non-acronym words, and spans that begin or end with a function or question word are dropped.
+* Once any specific name resolves, generic common nouns are dropped.
+* Results are ordered longest first, then by confidence.
 
-Planning is **budget-aware**: the total number of planned scans is capped to prevent unbounded exploration.
+Resolved entities feed routing (above), the graph path's seeds, and fusion's entity-first ordering.
 
----
+### 3. Encode and bundle
 
-## Step 6: Scan Execution (Progressive Fan-Out)
+The same encoder heads used at ingest run in query mode on the canonical text. The entity-anchored bundler then links attributes, affordances and contexts to the query's entities, exactly as at ingest.
 
-Each planned prefix scan query is executed against the storage layer using a **progressive fan-out** strategy:
+### 4. Determine the mode
 
-1. Within each ontology tier, scans are sorted by **specificity** (how many axes are specified in the prefix)
-2. The most specific scans are executed first (specificity 3: all axes in prefix)
-3. Then less specific (specificity 2, 1, 0)
-4. After completing a tier, if enough matches have been found (above a **satisfaction threshold**), remaining tiers are skipped
+* **Affordance mode** — the question's shape matches a supported affordance. The affordance selects the ontology tiers to probe.
+* **Exploratory mode** — otherwise. All exploratory tiers are probed, with tiers containing hinted classes first.
 
-For each scan:
+### 5. Plan
 
-* The optimal rotation is selected (where specified axes form a key prefix)
-* A prefix scan retrieves all matching records in a single storage operation
-* Results are collected and deduplicated across scans
+The planner produces an ordered, budget-capped list of scans, grouped into tiers:
 
-### Early termination
+1. **STORED** — for each query entity, the graph index records which BFO/CCO classes its addresses are actually stored under. Those partitions are probed first, round-robin across (entity, class) pairs so that every partition's first scan comes before any partition's second. Every entity is also probed under **BFO:0000001** (unclassified), whether or not the index lists it: list pages, ambiguous records and anything indexed after the last graph build land there. For entities with no stored classes, these safety-net probes are capped to a fraction of the budget.
+2. **Ontology tiers** — remaining entities are explored across tiers, one per BFO branch (independent continuants, occurrents, specifically dependent continuants, generically dependent continuants). Within a tier, classes are ordered: hinted classes first, then classes related to a hint by subsumption (ancestor or descendant), then the rest, shallower before deeper. The budget is spread across classes and rotated across entities so a small per-class budget still reaches every entity.
+3. **FALLBACK** — if exploration planned nothing, the unexpanded scans run as-is.
 
-Progressive fan-out enables **early termination**: if a tier yields sufficient results, the system stops scanning rather than exhaustively exploring all planned regions. This bounds query latency while preserving determinism — the same query with the same data always terminates at the same point.
+### 6. Fan out across the codebook
 
-### Budget limits
+Each specified axis's coarse code is expanded to its nearest codebook neighbours. The leading axis's codes become scan prefixes; the other specified axes are post-filtered against their acceptable codes. See [Geometric Retrieval](GEOMETRIC_RETRIEVAL.md).
 
-Execution is bounded by:
+### 7. Execute with progressive widening
 
-* A maximum number of prefix scans
-* A maximum number of document fetches
-* A satisfaction threshold per tier
+The runner executes tiers in order:
 
-These limits ensure that even highly ambiguous queries complete in bounded time.
+* Probes run until enough **distinct** records are found or the fetch budget is spent. On the reference deployment each tier is read in a fixed number of batched round trips; in the rotations layout each prefix scan pages with a cursor until enough distinct records are found or the prefix is exhausted.
+* In the STORED tier, each partition's first fetch takes a fair share of the limit, so one large partition cannot crowd out the others.
+* After a tier has produced a satisfying number of matches, later tiers are skipped.
+* The whole plan repeats at broader geometry levels (point → line → plane → cube) until the limit is reached or the request's `fan_out` cap is hit. Records are deduplicated across levels.
 
----
+### 8. Return
 
-## Codebook Neighborhood Fan-Out
-
-Because coordinates are LCA byte codes (not raw strings), the query engine can exploit the **geometric structure of the codebook** to widen scans systematically.
-
-At startup, the query service precomputes a neighbor table: for each codebook entry, the k nearest entries by cosine distance. At query time, each axis's code is expanded to include its k nearest neighbors (default k=3), producing 4 candidate codes per axis (1 exact + 3 neighbors).
-
-The Cartesian product of these candidates creates a deterministic set of address coordinates. Each unique combination of specified axes then maps to a single prefix scan on the appropriate rotation of the covering index.
-
-This mechanism creates **deterministic ordering** of scan priorities: exact-match codes are scanned first, then progressively more distant neighbors. The ordering is stable across identical queries. Combined with the covering index, neighborhood expansion adds recall without multiplying the number of storage operations — each unique prefix is scanned once regardless of how many neighbor combinations map to it.
+Matches are deduplicated by record, payloads are attached, and each row carries `address_meta` (the matched key, its type and entity, the per-axis coarse and fine codes, match score and matched geometry).
 
 ---
 
-## Step 7: Controlled Widening (Not Guessing)
+## The Graph Path in Detail
 
-NAM does not “broaden” queries by:
-
-* Removing constraints arbitrarily
-* Dropping entities
-* Falling back to similarity
-
-Widening occurs through structured mechanisms:
-
-* **Specificity descent** — within a tier, scans progress from fully-specified (all axes in prefix) to partially-specified (fewer axes, broader scan region)
-* **Ontology tier expansion** — when a tier is exhausted without satisfaction, the next tier is scanned
-* **Hint-prioritized ordering** — tiers containing ontologies observed by the bundler are scanned before others
-* **Rotation selection** — the covering index guarantees that any combination of specified axes can be efficiently scanned via the appropriate rotation
-
-Every widening step is explainable: the system can report which tier it scanned, at what specificity, and whether satisfaction was reached.
+The graph path seeds from the resolved entities — up to three, strongest first. One walk runs per seed, in parallel, with the per-walk limit split across seeds so total work stays that of one walk. Results are merged so that records reached from more seeds come first: for a query naming three people, records connected to all three lead, then the union. A seed whose walk fails is skipped. See [Graph Index](GRAPH_INDEX.md).
 
 ---
 
-## Results Are Not Ranked by Similarity
+## The Vector Path in Brief
 
-NAM returns:
-
-* Records that exist at scanned address regions
-
-Ordering (if any) reflects:
-
-* Address specificity
-* Scan order
-* Retrieval time
-
-NAM does **not** compute semantic similarity scores at query time.
-
-Any ranking beyond this is the responsibility of:
-
-* The client
-* Or a downstream system
+The query is embedded with the same model used at ingest, the part of the vector index nearest it is read, and the candidates are ranked by cosine similarity. Only records at or above the deployment's cosine floor are returned, top `limit` by cosine. See [Vector Search](VECTOR_SEARCH.md).
 
 ---
 
-## Why Queries Can Return “Unexpected” Results
+## Ordering and Scores
 
-This is a feature, not a flaw.
+* The address path orders by scan order and match score; it does not compute embedding similarity.
+* The vector path's only score is `cosine`.
+* Fusion keeps address order first, then vector-only rows, then graph-only rows, with entity-named records lifted to the front.
 
-Because:
-
-* Ontologies may be broad
-* Queries may be exploratory
-* Addresses may intersect unexpectedly
-
-NAM may surface records the user did not anticipate — but which are semantically adjacent in the space they asked to explore.
-
-This is how **sense-making precedes certainty**.
+NAM returns candidates with their provenance. Answer generation, summarization and reasoning are downstream concerns.
 
 ---
 
-## Failure Is Explicit and Informative
+## Why a Query Can Return Nothing From a Path
 
-If a query returns no results, it means one of the following is true:
+* **address** — no records were written at the planned regions, the query was more specific than the data supports, or the scope (tenant, partition) differs from what ingest wrote.
+* **vector** — nothing in the part of the index the query read cleared the cosine floor. (A failed read is an `error`, not an empty result.)
+* **graph** — no entity resolved, or the resolved entity has no edges yet (the graph index lags the address index).
 
-* No records were ingested at those addresses
-* The addressing contract was violated at ingest
-* The query was more specific than the data supports
-
-NAM does not mask this with fallback heuristics.
-
----
-
-## Query vs Retrieval vs Reasoning
-
-NAM:
-
-* Plans queries
-* Executes scans
-* Returns records
-
-NAM does **not**:
-
-* Summarize
-* Reason
-* Explain
-* Generate answers
-
-Those are downstream concerns.
-
-This separation is what makes NAM composable.
+Each case is visible in `access_paths`.
 
 ---
 
 ## Summary
 
-* Queries are transformed into prefix scans on a covering index
-* The same encoders are used for ingest and query
-* Planning is deterministic and bounded
-* Widening is explicit, not heuristic
-* Retrieval uses structured prefix scans, not similarity
+* `POST /v1/query` routes across address, vector and graph paths, by policy or as pinned by the caller.
+* Paths run in parallel; results are fused by record with address priority and entity-first ordering.
+* Every row lists its `sources`; every response carries an `access_paths` trace; degraded storage is reported.
+* The address path canonicalizes, resolves entities from the session store, plans STORED-then-ontology tiers, fans out over the codebook, and widens geometrically until enough distinct records are found.
 
-A NAM query is not a search.
-It is a **geometric exploration of semantic space**.
-
-→ See also: [Ingestion Model](INGESTION_MODEL.md) | [Geometric Retrieval](GEOMETRIC_RETRIEVAL.md) | [High-Level Systems](HIGH_LEVEL_SYSTEMS.md) | [Pipeline Architecture](PIPELINE_ARCHITECTURE.md) | [Terminology](../PHILOSOPHY/TERMINOLOGY.md)
+→ See also: [Geometric Retrieval](GEOMETRIC_RETRIEVAL.md) | [Addressing Model](ADDRESSING_MODEL.md) | [Vector Search](VECTOR_SEARCH.md) | [Graph Index](GRAPH_INDEX.md) | [API Reference](API_REFERENCE.md) | [High-Level Systems](HIGH_LEVEL_SYSTEMS.md)

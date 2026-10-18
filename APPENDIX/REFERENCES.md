@@ -13,11 +13,11 @@ NAM intentionally diverges from many of these approaches.
 
 * **Associative Memory (Hopfield Networks)**
   Early exploration of content-addressable memory.
-  NAM shares the idea of retrieval by structure, not by ID — but avoids learned weights and stochastic recall.
+  NAM shares the idea of retrieval by content rather than by ID, without stochastic recall.
 
 * **Sparse Distributed Memory (Kanerva)**
   A foundational model for high-dimensional memory addressing.
-  Influenced NAM’s geometric framing, but NAM replaces probabilistic distance with deterministic structure.
+  Influenced NAM’s geometric framing; NAM’s address path uses deterministic structure in place of probabilistic distance.
 
 ### Cognitive & Symbolic Systems
 
@@ -40,7 +40,7 @@ NAM intentionally diverges from many of these approaches.
   NAM rejects explicit triples, joins, and query languages that require prior schema agreement.
 
 * **Knowledge Graphs (Neo4j, property graphs)**
-  Influenced NAM’s respect for relationships, but NAM avoids traversal, edges, and mutable graph state.
+  Influenced NAM’s respect for relationships. NAM’s graph index is derived — records, the entities they mention and the classes those entities are stored under, written by an index builder — rather than a mutable property graph with a query language.
 
 ### Search & Indexing
 
@@ -53,23 +53,36 @@ NAM intentionally diverges from many of these approaches.
 
 ---
 
+## Formal Ontology
+
+* **Basic Formal Ontology (BFO 2020, ISO/IEC 21838-2)**
+  The upper-level ontology behind the type segment of every NAM address.
+
+* **Common Core Ontologies (CCO)**
+  The mid-level ontology whose classes (persons, organizations, acts, information content entities and so on) NAM’s ontology head assigns.
+
+---
+
 ## Vector Search & Embeddings
 
 ### Dense Vector Retrieval
 
 * **Word2Vec / GloVe / FastText**
   Demonstrated semantic proximity via learned embeddings.
-  NAM rejects similarity as a primitive.
+  NAM uses embeddings as one access path, never as the only explanation of a result.
 
-* **Approximate Nearest Neighbor (HNSW, FAISS)**
+* **Approximate Nearest Neighbor (HNSW, FAISS, inverted-file partitioning)**
   Influential in modern retrieval pipelines.
-  NAM avoids probabilistic neighbors entirely.
+  NAM’s vector path keeps its index in NAM’s own key-value store, reads only the part of it near a query, and labels every result with its cosine.
+
+* **Residual vector quantization**
+  Underlies the LCA address codec, which maps an axis value to a coarse and a fine code.
 
 ### RAG Architectures
 
 * **Retrieval-Augmented Generation (RAG)**
   Acknowledged as the dominant pattern today.
-  NAM exists specifically to solve RAG’s determinism, explainability, and control problems.
+  NAM exists to give RAG pipelines attributable, inspectable retrieval.
 
 ---
 
@@ -77,8 +90,14 @@ NAM intentionally diverges from many of these approaches.
 
 ### Deterministic Systems
 
-* **Event-sourced systems**
-  Influenced NAM’s immutability and rebuildability principles.
+* **Event-sourced systems and change data capture**
+  Influenced NAM’s rebuildability: every index is derived from a change stream over source records.
+
+* **Log-structured merge trees (RocksDB)**
+  The storage substrate whose ordered keys make prefix scans the natural retrieval primitive.
+
+* **Durable message logs (NATS JetStream)**
+  The write-ahead log pattern NAM uses to acknowledge records only after their writes land.
 
 * **Functional programming models**
   Inspired NAM’s insistence on pure functions for address generation.
@@ -116,8 +135,8 @@ These omissions are deliberate.
 ## Closing Note
 
 NAM is not an incremental improvement on an existing category.
-It is an attempt to re-establish **structure, determinism, and geometry**
-as first-class primitives in knowledge systems.
+It is an attempt to make **structure, determinism and attribution**
+first-class primitives in knowledge systems, with similarity as a labelled complement rather than the foundation.
 
 The references above represent starting points — not destinations.
 

@@ -2,33 +2,29 @@
 
 ## How Raw Information Becomes Addressable Meaning in NAM
 
-In NAM, ingestion is not a preprocessing step, an ETL pipeline, or an indexing phase in the traditional sense.
-It is the act of **projecting raw information into a deterministic semantic space**.
+In NAM, ingestion is not a preprocessing step or an indexing phase in the traditional sense.
+It is the act of **projecting raw information into deterministic, retrievable structure**.
 
-Ingestion and query are symmetric operations. Both use the same encoder heads, the same addressing rules, and the same geometric model. The only difference is **direction**:
+Every record that enters NAM is indexed three ways, from the same source:
 
-* Ingestion **writes** addresses (as rotated covering index keys)
-* Query **scans** addresses (via prefix scans on the covering index)
+* **Semantic addresses**, built by the encoding pipeline and written to the address index
+* **A vector index entry**, built by embedding the record, written to the vector index
+* **Graph records**, derived from the record's addresses, written to the graph index
 
-This symmetry is what makes geometric retrieval possible.
+The semantic address path is the core, and most of this document is about it. For that path, ingestion and query are symmetric: both use the same parser, the same encoder heads, the same entity resolver and the same coordinate codec. The only difference is direction:
+
+* Ingestion **writes** addresses (as covering-index entries)
+* Query **probes** addresses (with key lookups and prefix matches on the covering index)
 
 ---
 
-## Core Principle: Ingest Defines the Search Space
+## Core Principle: Ingest Defines the Address Space
 
-NAM does not “learn” what a record means at query time.
+The address path does not learn what a record means at query time. Everything it can retrieve must first be **materialized as addresses during ingestion**.
 
-All meaning that can ever be retrieved must first be **materialized as addresses during ingestion**.
+If the address path fails to retrieve a record, it is not because a similarity score was too low. It is because the relevant addresses were never emitted, or the query encoded to different ones. That is an explainable miss: the address emitted at ingest and the prefix scanned at query can both be inspected.
 
-If a query fails to retrieve a record, it is not because:
-
-* The model “missed” it
-* Similarity was too low
-* The question was phrased incorrectly
-
-It is because the relevant addresses were never emitted at ingest.
-
-This is a deliberate design choice.
+The vector path is an independent index with its own coverage. It is a second way in, not a repair of the first, and every result says which path found it.
 
 ---
 
@@ -38,249 +34,160 @@ This is a deliberate design choice.
 
 * Deterministic address construction
 * Semantic projection via encoder heads
-* Lossy by design (meaning is discretized)
+* Lossy by design (meaning is discretized into classes and codes)
 * Repeatable and auditable
-* Domain-trainable via head artifacts
+* Domain-trainable via head artifacts and head stores
 
 ### Ingestion **is not**:
 
-* Feature extraction for a model
-* Embedding generation
 * Schema enforcement
 * Ranking or scoring
-* Adaptive or online learning
-
-NAM does not “optimize” ingest. It **commits** it.
+* A system of record (the source store is)
 
 ---
 
-## The Ingest Pipeline
+## How Records Enter
 
-Ingestion in NAM is a **staged pipeline**, not a monolithic function call.
+Records enter through **change data capture**: they are written to the source store, and NAM's pipelines follow its change stream. There is no separate import API. Each pipeline resumes from its own checkpoints after a restart.
 
-Raw data enters through **change data capture (CDC)** — NAM watches an upstream data store for mutations and streams them into the pipeline automatically. Data does not enter via batch import or direct API submission.
+The address pipeline runs each record through:
 
-Each record passes through the following stages in order:
+1. **NLP**: rule-based tokenization, POS tagging, lemmatization, NER and dependency parsing. Deterministic, no learned weights.
+2. **Ontology**: a BFO 2020 / CCO v2.2 class for each sentence and for the record.
+3. **Encoder heads**: entity, attribute, affordance, context. On the reference deployment the entity head runs first and a deterministic sentence resolver ties each sentence's statements to the resolved entities; the attribute, affordance and context heads then run in parallel.
+4. **Join and durable hand-off**: the record's head results are joined and written to an on-disk queue.
+5. **Addressing**: entity-anchored bundling, coordinate coding, address construction, write, acknowledge.
 
-1. **NLP** — Rule-based linguistic analysis (tokenization, POS tagging, lemmatization, NER, dependency parsing). Fully deterministic, no neural models.
-2. **Ontology classification** — Determines the semantic type of the record (person, object, location, concept, etc.)
-3. **Encoder head fan-out** — Multiple heads run in parallel, each extracting a specific semantic signal
-4. **Addressing** — Entity-anchored bundling and deterministic address construction
+> See: [Pipeline Architecture](PIPELINE_ARCHITECTURE.md) for the runtime architecture
 
-> See: [Pipeline Architecture](PIPELINE_ARCHITECTURE.md) for the full runtime architecture
+---
+
+## Ontology: The Type of Every Address
+
+The ontology head answers "what kind of thing is this record about?" with a class from a certified, standards-based hierarchy (BFO 2020 and the Common Core Ontologies).
+
+* Each sentence is scored against a trained codebook; an uncertain sentence backs off to the deepest ancestor class the evidence supports.
+* The record's class is the vote of its sentences.
+* When nothing beyond existence can be asserted, the head abstains with the root class `BFO:0000001`. Such records are still addressed; the abstain rate is tracked as a classification-quality metric, not treated as a valid type.
+
+The record's class is written into the **type segment of every address the record emits**, including addresses anchored on other entities the record mentions. A biography's address anchored on an award is filed under the class of the person the biography is about.
 
 ---
 
 ## Encoder Heads at Ingest Time
 
-During ingestion, the parsed document is passed through a set of **encoder heads** running in parallel.
+| Head | Extracts | Address role |
+|---|---|---|
+| **Entity** | Specific things referred to, resolved to canonical identifiers | Entity anchor |
+| **Attribute** | Qualities and properties asserted in the text | Axis x |
+| **Affordance** | Actions and interactions, folded to canonical verbs | Axis y |
+| **Context** | Particular circumstances: time periods, places, institutions, fields | Axis z |
 
-NAM currently uses five encoder heads:
-
-* **Entity** — extracts named entities and resolves them to canonical identifiers
-* **Ontology** — classifies the semantic type of the overall record
-* **Attribute** — extracts properties and descriptors (adjectives, modifiers)
-* **Affordance** — extracts actions and capabilities (verbs)
-* **Context** — extracts situational, temporal, and categorical signals
-
-Each head:
-
-* Receives the same parsed document (NLP output)
-* Extracts its specific signal independently
-* Emits one or more semantic components
-
-All emitted components are treated as **equally valid**.
-
-There is no concept of “primary” or “secondary” meaning at ingest.
-
----
-
-## Entity-Anchored Address Construction
-
-Address construction is entity-anchored. Rather than crossing every semantic component with every other, the system uses dependency parsing to determine which components *actually belong to* which entities.
-
-This means:
-
-* Each entity in the text gets its own bundle of associated components
-* Attributes, actions, and context are scoped to the entities they modify
-* The address count per record is bounded by the structure of the text, not by combinatorial explosion
-
-Entity-anchored bundling preserves linguistic structure. The system knows that "angry" modifies "technician," not "pump" — a syntactic fact extracted deterministically from the parse tree.
-
-→ See: [Addressing Model](ADDRESSING_MODEL.md)
-
----
-
-## Address Emission and Multiplicity
-
-A single record may produce many addresses.
-
-This is expected.
-
-For example:
-
-* A biographical paragraph may emit multiple entity-scoped address bundles
-* A procedural description may emit several ontology paths
-* A vague statement may emit only coarse or partially populated addresses
-
-NAM does not collapse or deduplicate meaning during ingestion.
-It preserves **semantic breadth**, not precision.
-
-Precision is handled at query time through geometric narrowing.
-
----
-
-## Axes and Non-Specific Coordinates
-
-Each address in NAM exists in a multi-axis space (for example, X, Y, Z).
-
-When an encoder head cannot confidently populate an axis:
-
-* The axis receives a **reserved sentinel** (`lca:0:0`) — a dedicated codebook entry meaning “non-specific along this axis”
-
-A non-specific coordinate does **not** mean “unknown” or “missing”.
-
-It means:
-
-> “This record intentionally does not constrain this axis.”
-
-This allows records to exist as:
-
-* Points (fully specified)
-* Lines (one non-specific axis)
-* Planes (multiple non-specific axes)
-* Volumes (highly general meaning)
-
-This is essential for:
-
-* Exploratory retrieval
-* Progressive narrowing
-* Geometric widening (point → line → plane → volume)
+Each head receives the same parse and the record's class, extracts its signal independently, and emits zero or more values. A head that finds nothing for a record emits nothing, and the axis is marked empty.
 
 ---
 
 ## Entity Resolution at Ingest Time
 
-Entity resolution is the process of mapping surface forms ("Abraham Lincoln", "Lincoln", "Abe Lincoln") to a **canonical entity identifier**.
+Entity resolution maps surface forms ("Abraham Lincoln", "Lincoln") to a **canonical entity identifier**.
 
-NAM uses **hash-based entity identifiers**: a deterministic hash of the canonical entity form, independent of the entity's ontology type. This ensures that:
+* Mentions are extracted and normalized to a canonical form.
+* The normalized form is looked up in the entity store. A known surface form resolves to its existing entity.
+* An unknown form registers a new entity. Its identifier is a **hash of the canonical form**, independent of type, so the same name always yields the same identifier on every replica.
 
-* The same entity always receives the same identifier, regardless of how it was classified
-* Ingest and query always agree on entity identity
-* Ontology reclassification (e.g., "concept" at ingest vs "object" at query) does not break retrieval
+The entity store lives in the `session` bucket, is cached on every node, and **persists across reloads**: it is a warm cache of everything ingest has learned. A maintenance task can re-resolve addresses written early in a load, when the store knew fewer names, against what it knows now.
 
-Entity resolution follows a **fuzzy-first** strategy:
+Query-time resolution uses the same resolver over the same store, so ingest and query agree on entity identity.
 
-* Candidate keys are checked first (approximate matches via canonical form similarity)
-* Surface form lookups serve as a fallback
-* New entities are registered when no match is found
+---
 
-The entity store acts as a **warm cache** that accumulates knowledge across ingestion cycles. It is not flushed during pipeline resets.
+## Entity-Anchored Address Construction
+
+Rather than crossing every semantic component with every other, the bundler uses the dependency parse to decide which components *belong to* which entity:
+
+* Each entity gets its own bundle of attributes, actions and context
+* Attributes and actions are scoped to the entities they modify or govern
+* Context values carry the sentences they came from and are scoped to entities through those sentences
+
+The number of addresses per record is bounded by the structure of the text, not by a combinatorial product.
+
+→ See: [Addressing Model](ADDRESSING_MODEL.md)
+
+---
+
+## Coordinates and Empty Axes
+
+Each axis value is encoded by the LCA codec into a code pair `lca:coarse:fine`. An axis with no value is encoded as `lca:0:0`.
+
+An empty axis does not mean "unknown". It means:
+
+> "This record does not constrain this axis."
+
+This lets records exist as points (every axis specified), lines, planes or cubes (fewer axes specified), and lets queries widen geometrically by scanning shorter prefixes.
+
+Addresses are stored in a covering layout, so any combination of specified axes is a direct match on something stored.
+
+---
+
+## Address Emission and Multiplicity
+
+A single record emits many addresses: one set per entity bundle, each stored in the covering index. This is expected. NAM preserves the breadth of what a record says; precision is applied at query time by choosing which prefixes to scan.
 
 ---
 
 ## Ingest-Time Learning
 
-NAM's ingest pipeline is read-only with respect to navigation rules, but it does learn continuously in a constrained way:
+Ingest learns, in a constrained and visible way:
 
-* New entities are registered, and surface forms are mapped to canonical entries
-* Unknown vocabulary (verbs, adjectives) is auto-classified based on context
+* New entities are registered and new surface forms are mapped to existing entities
+* Unknown attribute and affordance terms are categorized from context
+* New context values (places, institutions, fields) join the context store
 * Curated seed vocabulary takes priority over discovered terms
 
-This learning **does not affect query behavior retroactively**. It only enriches the vocabulary available for future entity resolution and address construction.
+All of this learning lands in the head stores. It does not rewrite addresses already written; it changes what future records (and future queries) resolve to. Navigation rules, codecs and the ontology codebook are fixed artifacts that change only by an explicit retraining and reload.
 
-→ See: [Design Principles — Learning](../PHILOSOPHY/DESIGN_PRINCIPLES.md#4-field-based-training-not-runtime-learning)
+→ See: [Design Principles](../PHILOSOPHY/DESIGN_PRINCIPLES.md)
 
 ---
 
-## Determinism as a Contract
+## Durability of Ingest
 
-Given the same input and the same encoder artifacts:
+The address pipeline is **acknowledge-after-write**:
 
-* Ingestion will always emit the same addresses
-* In the same order
-* Into the same partitions
-* With the same keys
+* A record whose head results are complete is written to a durable, on-disk queue before addressing.
+* A queued batch is acknowledged only after all of its address writes have landed.
+* A failed write sends the batch back for redelivery. If a redelivery limit is configured and reached, the records are counted in the pipeline's error total, never dropped silently.
+* Redelivery may append an address line twice; readers de-duplicate lines by record pointer.
 
-There is no randomness.
-There are no thresholds that drift.
-There is no mutation to navigation rules during ingest.
-
-This guarantees:
-
-* Rebuildability
-* Auditability
-* Trust in retrieval behavior
+On the reference deployment every hop between the stages upstream of that queue is a durable on-disk stream as well, and each stage acknowledges its input only after the next stage has it. A deployment can run those hops on a lightweight pod-local bus instead. Either way, a record whose head results never all arrive is evicted after a timeout and counted as an error.
 
 ---
 
 ## Storage Is Address-First
 
-Ingestion does not store records “by content”.
+The address index does not store records by content. It stores **address keys whose values point back to records**: each value line holds the record's pointer and a timestamp. The record itself stays in the source store and is fetched at query time.
 
-It stores **address → record references**.
+The graph builder follows the address index's own change stream and writes the graph records; the vector pipeline follows the source store independently. Neither is on the address pipeline's acknowledgement path.
 
-The record payload itself is opaque to the addressing system and lives in the source store. NAM’s storage layer only cares about:
-
-* The address
-* The record identifier
-* The pointer to the payload
-
-Storage writes during ingestion are **asynchronous and fire-and-forget**. The addressing stage queues writes to a background thread and never blocks the pipeline. Write batching happens naturally as the background thread accumulates and flushes in groups.
-
-This separation is intentional and allows storage backends to be swapped without changing semantics.
-
-→ See: [Data Persistence](DATA_PERSISTENCE.md)
+→ See: [Data Persistence](DATA_PERSISTENCE.md) | [Graph Index](GRAPH_INDEX.md) | [Vector Search](VECTOR_SEARCH.md)
 
 ---
 
-## No Query-Time Repair
+## Determinism as a Contract
 
-NAM does not “fix” ingest mistakes at query time.
+Given the same input and the same artifacts (parser rules, ontology codebook, head vocabularies, LCA codec):
 
-If an address was not emitted:
+* The address pipeline emits the same addresses
+* Into the same partitions
+* With the same keys
 
-* It cannot be retrieved later
-* No fallback logic will infer it
-* No similarity search will approximate it
-
-This forces correctness upstream and makes system behavior predictable downstream.
-
----
-
-## Why This Matters
-
-The ingestion model is what makes NAM fundamentally different from:
-
-* Vector databases
-* RAG systems
-* Knowledge graphs
-* Search engines
-
-Those systems attempt to **recover meaning at query time**.
-
-NAM commits meaning **once**, geometrically, and never revises it implicitly.
-
-This is what enables:
-
-* Deterministic retrieval
-* Explainable misses
-* Domain-specific training
-* Stable system behavior at scale
+Head-store learning is the one moving part, and it is recorded state, not randomness: replaying the same records over the same store produces the same result.
 
 ---
 
 ## Ingestion as a Strategic Boundary
 
-Because ingestion defines the semantic space:
-
-* Customization happens here
-* Domain adaptation happens here
-* Field-specific training happens here
-
-Encoder heads can be retrained, swapped, or extended **without changing query logic**.
-
-This makes NAM deployable across domains without forking the system.
+Because ingestion defines the address space, customization happens here: the ontology codebook, the head vocabularies and the codec can be retrained for a domain without changing query logic. Changing them means re-ingesting, because addresses written under one artifact are not comparable with addresses built under another.
 
 ---
 
@@ -288,12 +195,11 @@ This makes NAM deployable across domains without forking the system.
 
 In NAM:
 
-* Ingestion is semantic commitment
-* Addresses are the only truth
-* Non-specific coordinates (`lca:0:0`) are meaningful
-* Determinism is mandatory
-* Query can only retrieve what ingest made possible
-
-Everything else follows from this.
+* Every record is indexed three ways from one source
+* Address ingestion is semantic commitment: the record's class, its entities and its coded axes
+* Empty axes (`lca:0:0`) are meaningful
+* Entity identity is a hash of the canonical name, shared by ingest and query
+* Handed-off records are acknowledged only after their writes land
+* The address path can only retrieve what ingest made addressable
 
 → See also: [High-Level Systems](HIGH_LEVEL_SYSTEMS.md) | [Query Model](QUERY_MODEL.md) | [Addressing Model](ADDRESSING_MODEL.md) | [Geometric Retrieval](GEOMETRIC_RETRIEVAL.md) | [Pipeline Architecture](PIPELINE_ARCHITECTURE.md) | [Data Persistence](DATA_PERSISTENCE.md)

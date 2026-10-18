@@ -1,322 +1,226 @@
 # Frequently Asked Questions (FAQ)
 
-This FAQ answers the questions we hear most often from engineers, architects, and operators encountering NAM for the first time.
+This FAQ answers the questions we hear most often from engineers, architects and operators encountering NAM for the first time.
 
-If you’re looking for marketing claims, this is not the right place.
-If you’re looking to understand what NAM *actually does*, this is.
+If you are looking for marketing claims, this is not the right place.
+If you are looking to understand what NAM *actually does*, this is.
 
 ---
 
 ## What problem is NAM solving?
 
-NAM addresses a specific gap:
-
-> How do you retrieve meaningful, explainable knowledge from large corpora **without collapsing meaning into probabilistic similarity**?
+> How do you retrieve meaningful, explainable knowledge from large corpora **without hiding how each result was found**?
 
 NAM is built for environments where:
-- Determinism matters
-- Recall boundaries must be understood
-- Answers must be inspectable
-- Semantic drift is unacceptable
+- Retrieval must be inspectable and attributable
+- Structure (what a record is about, which entities it involves) matters as much as similarity
+- Behaviour must be stable across runs and environments
+- The index must be rebuildable from source data
 
-It is not designed to replace LLMs, search engines, or databases — it complements them where those tools break down.
+It complements LLMs, search engines and databases rather than replacing them.
+
+---
+
+## What is NAM, in one paragraph?
+
+NAM is a **converged semantic index**. One query endpoint runs up to three access paths over the same source records — a deterministic **address** path (BFO/CCO type, entity, and LCA-coded attribute, affordance and context axes, reached by prefix scans), an approximate **vector** path (top-K above a cosine floor), and a **graph** path (records and the entities they mention, walked from the query's entities) — and fuses their results. Every result row lists its `sources`, and every response carries an `access_paths` trace.
 
 ---
 
 ## Is NAM a vector database?
 
-No.
+No — but it contains a vector index, and vector search is one of its three access paths.
 
-NAM does not rely on nearest-neighbor similarity, distance metrics, or global embedding spaces.
+The difference is in what the vector path is *for* and how it is reported:
+- It is explicitly approximate: top-K records above a cosine floor, not a guarantee of the nearest K
+- It runs alongside the structural address path, and graph when the query names an entity, not instead of them
+- Its results are labelled (`sources` contains `vector`, with a `cosine` score), so they are never confused with structural matches
 
-Retrieval in NAM is geometric and exact:
-- Queries generate probes
-- Probes intersect address space
-- Records match by structural alignment, not similarity score
+Inside the vector path, each record's embedding is filed into a region of a partition trained on the data; a query reads only the regions near it and ranks the candidates by cosine similarity.
 
-Vectors may exist *inside* encoder heads, but they are not the retrieval primitive.
+→ See: [Vector Search](../ARCHITECTURE/VECTOR_SEARCH.md)
 
 ---
 
 ## Is NAM a knowledge graph?
 
-Not in the traditional sense.
+Not in the traditional sense. NAM does not store triples or require predefined edges, and it has no graph query language.
 
-NAM does not:
-- Require predefined edges
-- Store explicit triples
-- Traverse relationship graphs at query time
+It does maintain a **graph index**: records linked to the entities they mention, and entities to the ontology classes they are stored under, built automatically from the address store. The graph path walks it from the entities a query resolves.
 
-Relationships in NAM emerge from **shared address geometry**, not graph traversal.
-
-You can derive graphs from NAM outputs — but NAM itself is not a graph engine.
+→ See: [Graph Index](../ARCHITECTURE/GRAPH_INDEX.md)
 
 ---
 
 ## Is NAM a RAG system?
 
-No — but it can support RAG systems.
-
-NAM does not:
-- Rank chunks by similarity
-- Optimize for prompt stuffing
-- Assume an LLM is the consumer
-
-Instead, NAM focuses on **semantic retrieval correctness**.  
-If you feed those results into an LLM, you get a more reliable RAG pipeline — but NAM stands independently.
-
----
-
-## Does NAM “understand” language?
-
-NAM does not claim human-like understanding.
-
-It performs:
-- Structured semantic interpretation
-- Ontology-aware encoding
-- Deterministic address assignment
-
-Understanding, in NAM, means *consistent semantic placement*, not generative reasoning.
-
----
-
-## Does NAM learn in real time?
-
-Yes — but in a constrained and intentional way.
-
-NAM learns by:
-- Accumulating new addressed records
-- Expanding the family of known addresses
-- Increasing coverage within existing semantic geometry
-
-NAM does **not**:
-- Change its encoder logic at runtime
-- Invent new strategies
-- Mutate behavior unpredictably
-
-It gains **knowledge**, not **new rules**.
-
----
-
-## What happens when NAM cannot answer a question?
-
-NAM fails *structurally*, not creatively.
-
-That means:
-- Fewer results
-- Wider probes
-- Explicit uncertainty
-
-NAM does not hallucinate completeness or correctness.
-
-If geometry does not intersect, the system makes that visible.
-
----
-
-## How is this different from “just better embeddings”?
-
-Embeddings collapse meaning into distance.
-NAM preserves meaning as structure.
-
-Distance-based systems must guess relevance.
-NAM tests alignment.
-
-This difference matters when:
-- Exact recall matters
-- False positives are dangerous
-- Explanations are required
-- Systems must behave identically across environments
-
----
-
-## Can NAM be trained on my domain?
-
-Yes.
-
-Encoder heads, ontologies, and artifacts are designed to be:
-- Domain-specific
-- Separately trained
-- Versioned
-- Auditable
-
-This is a core design goal, not an afterthought.
-
----
-
-## Does NAM require an LLM?
-
-No.
-
-LLMs can be used:
-- During training
-- For labeling
-- As downstream consumers
-
-But NAM does not depend on them at runtime.
+No — but it supports RAG systems. NAM retrieves records with payloads, scores where applicable, and a trace of how they were found. Feed those into an LLM and you get grounded, attributable context. NAM itself does not generate text.
 
 ---
 
 ## Is NAM deterministic?
 
-Yes — by design.
+The address and graph paths are deterministic: given the same inputs and artifacts, they produce the same addresses, plans, probes and results.
 
-Given the same inputs and configuration, NAM will:
-- Produce the same addresses
-- Probe the same geometry
-- Return the same results
+The vector path is approximate by design, and its results are always labelled as vector results, with their cosine. The fused response tells you exactly which path contributed what.
 
-This is non-negotiable.
+---
+
+## What is the address made of?
+
+```
+tenant | partition | type | entity | attribute | affordance | context
+```
+
+- **type** — a BFO/CCO class such as a CCO person or organization class, or `BFO:0000001` when the ontology head could not classify
+- **entity** — a hash of the entity's normalized name, independent of type
+- **attribute, affordance, context** — LCA codes of the form `lca:coarse:fine`; `lca:0:0` marks an empty axis
+- **storage** — each address is stored in a covering layout so that any set of specified axes is a direct match on something stored; the rotations layout does this with three cyclic rotations of the axes
+
+→ See: [Addressing Model](../ARCHITECTURE/ADDRESSING_MODEL.md)
+
+---
+
+## What does `BFO:0000001` mean in a key?
+
+It is BFO's root class, *entity*. The ontology head assigns it when the evidence supports nothing more specific. NAM treats it as a classification miss, not a category: the abstention rate is tracked as a quality metric, and the query planner always probes this partition as a safety net so such records stay reachable.
+
+---
+
+## How does NAM decide which access paths to run?
+
+A routing policy uses cheap signals from the query:
+- No resolved entity: address and vector
+- At least one resolved entity: address, vector and graph (graph is seeded from up to three resolved entities)
+
+Callers can pin paths explicitly with the `paths` field. If a routing policy leaves the vector path out and the address path returns too few results relative to the requested limit, the vector path is consulted as a fallback. Every decision and its reason appears in `access_paths`.
+
+→ See: [Query Model](../ARCHITECTURE/QUERY_MODEL.md)
+
+---
+
+## How are results ordered?
+
+Results are de-duplicated by record pointer. Address results come first, then vector-only and graph-only results, and any record whose key names a resolved entity is moved to the front. Vector rows carry a `cosine` score; address rows carry their match metadata.
+
+---
+
+## Does NAM "understand" language?
+
+NAM does not claim human-like understanding. It performs deterministic linguistic parsing (rule-based NLP), standards-based classification (BFO/CCO), entity resolution and structured address assignment, and on the vector path it uses a text-embedding model. Understanding, in NAM, means consistent semantic placement, not generative reasoning.
+
+---
+
+## Does NAM learn in real time?
+
+It accumulates knowledge, not rules. During ingest it:
+- Adds new addresses, vectors and graph records
+- Registers new entities and surface forms in the entity store
+
+It does **not** change its encoder heads, address codec, ontology codebook or embedding model at runtime. An admin can select a different head implementation for a slot; NAM never changes one by itself.
+
+---
+
+## What happens when NAM cannot answer a question?
+
+It returns fewer results and says why in the trace: which paths ran, what each found, and whether a fallback fired. If storage reads failed, the response is flagged as partial and names the failing sources — "could not look" is never reported as "found nothing".
+
+---
+
+## Can NAM be trained on my domain?
+
+Yes. The ontology codebook, the LCA codec, head vocabularies and capability maps are offline, versioned artifacts that can be trained on domain corpora. The embedding model is swappable by reindexing from source records.
+
+---
+
+## Does NAM require an LLM?
+
+No. LLMs can be used for labeling during training, or as downstream consumers, but NAM does not depend on them at runtime.
+
+---
+
+## Does NAM need a GPU?
+
+No. Every stage runs on CPU. The vector pipeline can optionally burst embedding work to a GPU claimed from an external provider when a backlog builds, and falls back to CPU otherwise.
+
+---
+
+## How does data get into NAM?
+
+Source documents are written to NAM's source bucket (directly, through the authenticated KV proxy, or by a loader task). A change stream (DCP) carries every mutation to the ingest pipeline, which holds records in a durable per-pod write-ahead log and acknowledges them only after their address writes land. Separate change-stream consumers build the vector index and the graph index.
+
+→ See: [Pipeline Architecture](../ARCHITECTURE/PIPELINE_ARCHITECTURE.md)
 
 ---
 
 ## Can NAM scale?
 
-NAM scales horizontally along familiar axes:
-- **Partition-based distribution** — data is divided across partitions, each owned by one ingest pod
-- **CAS-based lease coordination** — pods claim and shed partitions without external coordinators
-- **Per-pod pipeline isolation** — each pod runs a complete processing pipeline with a local message bus
-- **Parallel entity extraction** — the most I/O-intensive encoder head runs multiple workers per pod
-- **Asynchronous storage writes** — addressing never blocks the pipeline; writes are batched in the background
+Yes, horizontally:
+- **Ingest** — pods divide the source partitions with time-bounded leases and fail over automatically, and the tier sizes itself to its backlog
+- **Indexing** — vector ingest scales on its own; graph builder shards follow the ingest tier when autoscaling is on
+- **Query** — query replicas are stateless
+- **Storage** — the data service runs as a multi-node cluster with replicated partitions
 
-Adding pods triggers automatic rebalancing. Removing pods triggers automatic failover. Throughput scales linearly with pod count.
-
-→ See: [Current State — Scaling](../ROADMAP/CURRENT_STATE.md#scaling--deployment) | [Pipeline Architecture](../ARCHITECTURE/PIPELINE_ARCHITECTURE.md)
-
----
-
-## What kinds of problems is NAM *not* good at?
-
-NAM is not a good fit for:
-- Open-ended text generation
-- Creative writing
-- Approximate semantic similarity search
-- Replacing human judgment
-
-These are intentional non-goals.
-
----
-
-## Is NAM production-ready today?
-
-NAM is an active system in production-pilot phase with proven horizontal scaling and operational security.
-
-It is suitable for:
-- Controlled pilots and internal deployments
-- Domain-specific evaluations
-- Partner integrations with hands-on support
-
-Packaged deployment, automated lifecycle management, authenticated access, network isolation, and transport security are operational. The core pipeline (rule-based NLP, entity-anchored bundling, hash-based entity resolution, progressive fan-out queries) is exercised against real corpora.
-
-Recent hardening includes:
-- **Covering index** — N cyclic rotations per base address replace 2^N null-expansion copies; any axis combination is queryable via a single prefix scan
-- **Entity codebook with rejection classes** — VQ classifier filters generic nouns and low-salience candidates, reducing entity count per record from ~14-25 to ~3-5
-- **Bundler scoping** — entity-anchored bundling with dependency-parse-scoped attribute/affordance linking and sentence-scoped context assignment (~40 addresses/record)
-- S3-backed persistent storage with on-demand caching for fast cold starts
-- Hash-based, type-independent entity identifiers for stable ingest/query alignment
-- Ontology system with 26 canonical types (no catch-all fallback)
-- LCA (Learned Codec for Addressing) — byte-code coordinates with codebook neighborhood fan-out
-- 3-level cache hierarchy (in-process, LMDB on tmpfs, data service KV) for entity/attribute/affordance resolution
-- ONNX Runtime inference for ARM-optimized LCA encoding
-- Automatic DCP health recovery and supervisor-driven pod restart
-
-It is not yet a fully managed platform.
-
-> See: [Current State](../ROADMAP/CURRENT_STATE.md) | [Current Limitations](../CAPABILITIES/CURRENT_LIMITATIONS.md)
+Ingest throughput is bound by the CPU available to pipeline workers, so it scales with compute capacity; on the reference deployment compute nodes are added as the ingest pods need them.
 
 ---
 
 ## How does NAM persist data?
 
-NAM uses a **distributed key-value store backed by S3-compatible object storage**.
+In NAM's own distributed key-value store. Source, session and coordination buckets use an object-storage-backed RocksDB engine; the address, graph and vector buckets use a raw RocksDB engine with prefix bloom filters. Data files are mirrored to S3-compatible object storage, with on-demand caching on open. Every index is derived and can be rebuilt from source records.
 
-Data is written locally, then asynchronously replicated to object storage. On restart:
-- Only metadata manifests are downloaded (fast cold start)
-- Individual data files are fetched on demand when first accessed
-- This enables startup times measured in seconds, not minutes
-
-All address state is **derived** — it can be rebuilt by re-ingesting source data. The address index is never a system of record.
-
-> See: [Data Persistence](../ARCHITECTURE/DATA_PERSISTENCE.md)
+→ See: [Data Persistence](../ARCHITECTURE/DATA_PERSISTENCE.md)
 
 ---
 
 ## How does NAM handle failures?
 
-NAM is designed for **automatic recovery** at multiple levels:
-
-- **Pod failure**: Leases expire, surviving pods reclaim partitions, CDC resumes from checkpoints
-- **Storage failure**: S3 serves as durable backup; local state is rebuilt on demand
-- **CDC adapter exhaustion**: Consecutive failure detection triggers health reporting, supervisor kills and restarts the pod
-- **Complete cluster loss**: All state is recoverable from S3; coordination state starts fresh
-
-Recovery is automatic — no manual intervention required for common failure modes.
+- **Pod failure** — leases expire, surviving pods take over partitions, change streams resume from checkpoints, and records still in the write-ahead log are processed after restart
+- **Write failure** — batches are redelivered; a batch that exhausts its retries is counted as an error, never silently dropped
+- **Index builder interruption** — the graph builder resumes from its checkpoints and retries transient errors
+- **Storage trouble at query time** — reported as partial or unavailable, never as an empty answer
 
 ---
 
 ## How does NAM handle security?
 
-Security in NAM is structural, not bolted on.
+- JWT authentication with roles, rate limits and audit logging on the query API
+- Admin JWT on every supervisor administrative route, failing closed without a signing secret
+- A KV proxy that validates a JWT and then allows only data operations; change streams are admin-only
+- TLS for the query service
+- Secrets in Kubernetes secrets, redacted in task state and history
+- Destructive maintenance only by hand
+- Opt-in network policies and encryption at rest
 
-At the **design level**:
-- Determinism eliminates an entire class of nondeterministic exploits
-- Constrained learning prevents prompt-based or query-time manipulation
-- Derived state is rebuildable, eliminating long-lived hidden corruption
-
-At the **operational level**:
-- All external access is authenticated with signed, time-limited tokens
-- Role-based access control separates administrative and user operations
-- Network isolation segments internal components from external traffic
-- Transport encryption protects data in transit
-- Encryption at rest is available for persistent storage
-- Structured audit logs trace every authenticated access
-- Automated lifecycle management prevents operating on an unhealthy or misconfigured cluster
-
-NAM does not rely on prompt hardening, heuristic filters, or security through obscurity.
-
-> See: [Security and Trust](../GOVERNANCE/SECURITY_AND_TRUST.md)
+→ See: [Security and Trust](../GOVERNANCE/SECURITY_AND_TRUST.md)
 
 ---
 
-## Why does NAM look "different" from other AI systems?
+## Is NAM production-ready today?
 
-Because it was designed backward from failure cases.
+NAM is in an active production-pilot phase. It is suitable for controlled pilots, internal deployments, domain-specific evaluations and partner integrations with hands-on support. It is not yet a fully managed platform.
 
-NAM exists because:
-- Similarity is not meaning
-- Recall without explanation is dangerous
-- Nondeterminism breaks trust
-- Black boxes do not belong everywhere
-
-The system reflects those beliefs.
+→ See: [Current State](../ROADMAP/CURRENT_STATE.md) | [Current Limitations](../CAPABILITIES/CURRENT_LIMITATIONS.md)
 
 ---
 
-## How does NAM encode semantic coordinates?
+## What kinds of problems is NAM *not* good at?
 
-NAM uses **LCA (Learned Codec for Addressing)** to encode axis coordinates.
+- Open-ended text generation and creative writing
+- Exhaustive nearest-neighbour search with recall guarantees
+- Joins, aggregations and analytics
+- Serving as a system of record
 
-Each string value (attribute, affordance, context) is passed through a character-level CNN to produce an embedding, then quantized via a two-stage residual vector quantization into a compact byte-code pair (`lca:coarse:fine`).
-
-This provides:
-- **Geometric structure** — semantically similar strings map to nearby codebook entries
-- **Compact keys** — byte codes are shorter than arbitrary strings
-- **Neighborhood fan-out** — at query time, each code is expanded to its k nearest codebook neighbors, enabling structured widening without fuzzy matching
-
-The codebook is trained offline and frozen at deployment. Entity anchors remain hash-based strings.
-
-> See: [Addressing Model](../ARCHITECTURE/ADDRESSING_MODEL.md)
+→ See: [What NAM Cannot Do](../CAPABILITIES/WHAT_NAM_CANNOT_DO.md)
 
 ---
 
 ## Where should I start next?
 
-If you want:
-- Conceptual clarity → [Architecture](../ARCHITECTURE/HIGH_LEVEL_SYSTEMS.md)
-- Practical constraints → [Capabilities](../CAPABILITIES/WHAT_NAM_CAN_DO.md) | [Limitations](../CAPABILITIES/CURRENT_LIMITATIONS.md)
+- Conceptual clarity → [High-Level Systems](../ARCHITECTURE/HIGH_LEVEL_SYSTEMS.md)
+- Practical constraints → [What NAM Can Do](../CAPABILITIES/WHAT_NAM_CAN_DO.md) | [Current Limitations](../CAPABILITIES/CURRENT_LIMITATIONS.md)
 - Current status → [Current State](../ROADMAP/CURRENT_STATE.md)
 - Future direction → [Near-Term](../ROADMAP/NEAR_TERM.md) | [Long-Term](../ROADMAP/LONG_TERM.md)
 - Definitions → [Terminology](../PHILOSOPHY/TERMINOLOGY.md) | [Glossary](GLOSSARY.md)
 
-This documentation is designed to be read non-linearly.
-
-→ See also: [What Is NAM](../OVERVIEW/WHAT_IS_NAM.md) | [Terminology](../PHILOSOPHY/TERMINOLOGY.md) | [Current State](../ROADMAP/CURRENT_STATE.md)
+→ See also: [What Is NAM](../OVERVIEW/WHAT_IS_NAM.md)

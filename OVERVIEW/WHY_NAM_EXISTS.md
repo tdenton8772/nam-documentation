@@ -98,8 +98,9 @@ It provides a system that:
 * preserves ambiguity instead of erasing it
 * encodes meaning structurally
 * allows exploration before commitment
-* behaves deterministically
-* supports explanation and auditability
+* behaves deterministically at its core
+* keeps similarity search as a labelled complement, not the foundation
+* supports explanation and auditability: every result says which path found it
 
 In other words:
 
@@ -117,7 +118,7 @@ NAM is not:
 * a knowledge graph
 * a chatbot
 
-It borrows ideas from all of them — but solves a different problem.
+It borrows ideas from all of them — and runs a vector path and a graph path of its own beside its structured core — but it solves a different problem.
 
 Those systems answer questions.
 NAM helps you **figure out which questions are worth asking**.
@@ -156,9 +157,9 @@ Organizations have:
 
 NAM allows meaning to be:
 
-* encoded explicitly
+* encoded explicitly, against a standard upper ontology
 * evolved intentionally
-* audited historically
+* rebuilt from source whenever the encoding changes
 
 ---
 
@@ -217,6 +218,6 @@ It is especially valuable when:
 
 ## In One Line
 
-**NAM exists because similarity-based retrieval cannot support understanding, and understanding is now a prerequisite for trustworthy AI.**
+**NAM exists because similarity-based retrieval alone cannot support understanding, and understanding is now a prerequisite for trustworthy AI.**
 
 → See also: [What Is NAM](WHAT_IS_NAM.md) | [Design Principles](../PHILOSOPHY/DESIGN_PRINCIPLES.md) | [Where NAM Fits](WHERE_NAM_FITS.md)

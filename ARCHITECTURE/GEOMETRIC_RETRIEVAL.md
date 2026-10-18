@@ -2,331 +2,150 @@
 
 *Points, lines, planes, and cubes*
 
-This document explains the core retrieval mechanism in NAM.
+This document explains how the **address path** retrieves records: by navigating regions of a structured key space rather than ranking by similarity.
 
-Everything else — encoders, affordances, planners, storage — exists to make **geometric retrieval** possible, deterministic, and efficient.
+The address path is one of three access paths in NAM's converged index. The other two are an approximate vector path ([Vector Search](VECTOR_SEARCH.md)) and a graph path ([Graph Index](GRAPH_INDEX.md)). A query may run any combination of them; see [Query Model](QUERY_MODEL.md). This document covers only the address path, which is the deterministic core.
 
 ---
 
 ## The Core Idea
 
-NAM retrieves information by **navigating geometry**, not by ranking similarity.
+The address path does not ask "which records are closest to this query?"
 
-Instead of asking:
+It asks "which records occupy this region of semantic space?"
 
-> “Which records are closest to this query?”
-
-NAM asks:
-
-> “Which records occupy the same region of semantic space?”
-
-That region may be:
-
-* A **point**
-* A **line**
-* A **plane**
-* Or a **volume (cube)**
-
-Retrieval is navigation, not comparison.
+That region may be a **point**, a **line**, a **plane**, or a **cube** (volume). Retrieval is navigation, not comparison.
 
 ---
 
 ## The Address Space
 
-Every record in NAM is stored at one or more **semantic addresses**.
-
-Conceptually, an address looks like:
+Every record is stored at one or more addresses:
 
 ```
-(namespace, ontology, entity, x, y, z)
+tenant | partition | TYPE | entity | x | y | z
 ```
 
-Where:
+* `tenant`, `partition`, `TYPE` (a BFO/CCO class) and `entity` form the partition key: *what kind of thing, about which entity, in which scope*.
+* `x` (attribute), `y` (affordance) and `z` (context) are the semantic axes.
 
-* `namespace` and `ontology` define *what kind of thing* this is
-* `entity` anchors meaning (optional)
-* `x`, `y`, `z` are semantic axes
-
-Each axis may contain:
-
-* A concrete LCA-encoded value (e.g. `lca:42:17`, `lca:201:55`)
-* Or the non-specific sentinel (`lca:0:0`) — a reserved codebook entry meaning "not constrained along this axis"
+Each axis holds either an LCA code such as `lca:42:17` (coarse code 42, fine code 17) or the empty code `lca:0:0`, meaning "not constrained along this axis." See [Addressing Model](ADDRESSING_MODEL.md).
 
 ---
 
 ## Why Geometry Exists at All
 
-Most real-world data is **incomplete**.
+Most real text is incomplete. A sentence rarely states a quality, an action and a circumstance for every entity it mentions. If every axis had to be populated, most records would be unusable.
 
-A record rarely expresses:
-
-* All attributes
-* All dimensions
-* All relationships
-
-If NAM required every axis to be populated, most records would be unusable.
-
-Instead, NAM treats missing information as **intentional openness**, not absence.
-
-That openness is modeled geometrically.
+NAM treats an unpopulated axis as openness, and models that openness geometrically.
 
 ---
 
-## Points
+## Points, Lines, Planes, Cubes
 
-A **point** is a fully specified address.
+The geometry of a match is determined by how many axes have to agree.
 
-Example:
+| Geometry | Axes that must agree | Meaning |
+|---|---|---|
+| **Point** | all specified axes | A specific fact: this entity, with this quality, this action, these circumstances |
+| **Line** | all but one | One axis left open |
+| **Plane** | all but two | Two axes left open |
+| **Cube** | none (partition only) | Anything stored about this entity under this type |
 
-```
-(entity:tyler_denton, location, x=park, y=outdoor, z=public)
-```
-
-This represents:
-
-* A very specific semantic fact
-* High precision
-* Low recall
-
-Points are useful when:
-
-* The data is explicit
-* The query is narrow
-* Precision matters
+A record can itself occupy a line, plane or cube: an address with empty axes (`lca:0:0`) is open along them. A query widens from point toward cube by requiring fewer axes to agree.
 
 ---
 
-## Lines
+## How a Region Becomes a Storage Operation
 
-A **line** occurs when one axis is concrete and the others are non-specific.
+### The covering index answers any set of specified axes
 
-Example:
+Addresses are stored so that whichever axes a query specifies are a **direct match** (exact or by prefix) on something stored (see [Addressing Model](ADDRESSING_MODEL.md)) — no wildcard copies, no secondary index, nothing derived at read time.
 
-```
-(entity:tyler_denton, location, x=lca:42:17, y=lca:0:0, z=lca:0:0)
-```
+* On the **reference deployment**, each partition's addresses are stored together, and a planning tier is read in a fixed number of batched round trips, however many addresses a partition holds.
+* In the **rotations layout**, the planner picks the rotation that puts the specified axes at the front of the key, and the probe is a **prefix scan**.
 
-This represents:
+Everything stored for an address shares its partition key, so it lives in the same storage partition, and a probe of one partition key is a single-partition operation.
 
-* “Any park-related location”
-* Across all outdoor/indoor/public/private distinctions
+### Coarse-code prefixes
 
-Lines allow:
+Probes are built on **coarse codes**. A prefix such as `…|lca:42:` matches every fine code under coarse code 42 on the leading axis. This gives each probe a small semantic neighbourhood rather than an exact string.
 
-* Partial information
-* Flexible matching
-* Safe generalization
+The leading axis is expanded to its exact coarse code plus its nearest codebook neighbours, and each becomes a scan prefix. The remaining specified axes are checked by **post-filtering** the scanned rows against their own acceptable coarse codes (exact plus neighbours).
 
----
+### Empty codes are neutral
 
-## Planes
+When filtering, a stored empty code (`lca:0:0`) on an axis the query specified neither matches nor disqualifies: it lowers the number of axes that must agree, but does not add to the row's match score. At point level, an empty leading code is excluded, so point matches always carry real signal on the leading axis.
 
-A **plane** occurs when two axes are open.
-
-Example:
-
-```
-(entity:tyler_denton, location, x=lca:0:0, y=lca:0:0, z=lca:8:130)
-```
-
-This represents:
-
-* “Anything outdoor related”
-* Across many specific activities or places
-
-Planes are essential for:
-
-* Natural language queries
-* Vague or exploratory questions
-* Human-style reasoning
+Each surviving row is annotated with a match score and the geometry it matched at.
 
 ---
 
-## Cubes (Volumes)
+## Progressive Widening
 
-A **cube** exists when all axes are open.
-
-Example:
+The address path runs geometry levels in order, from tight to broad:
 
 ```
-(entity:tyler_denton, location, x=lca:0:0, y=lca:0:0, z=lca:0:0)
+level 0: point   all specified axes must agree
+level 1: line    one fewer must agree
+level 2: plane   two fewer must agree
+level 3: cube    partition-only scan, no axis filter
 ```
 
-This represents:
+At each level the planner builds scans and the runner executes them, deduplicating records across levels. The path stops as soon as it has the requested number of distinct records, or after the broadest level the request allows. The request's `fan_out` caps how far it widens.
 
-* “Any location-related information”
-* Maximum recall
-* Minimum specificity
+Within a level, the rotations layout pages each scan with a cursor until enough distinct records are found or the level's fetch budget is spent; the reference deployment's layout reads each planning tier in a fixed number of batched round trips. A large partition does not starve smaller ones: the first fetch of each known partition takes a fair share of the limit.
 
-Cubes are typically used:
-
-* As fallbacks
-* During exploratory retrieval
-* When affordance detection is weak or ambiguous
+Every step is explicit, ordered and deterministic: the same query against the same data plans the same scans and stops at the same point.
 
 ---
 
-## Why Non-Specific Axes Are Not “Missing”
+## Where the TYPE Segment Fits
 
-A critical design choice in NAM:
-
-> A non-specific axis does **not** mean “unknown.”
-> It means “not constrained along this axis.”
-
-This distinction matters.
-
-* A missing field would be an error
-* A non-specific axis (`lca:0:0`) is an intentional declaration of openness
-
-At ingest time, non-specific axes participate in the covering index like any other coordinate value — the sentinel is stored in all N rotations of the key.
-
-At query time, the planner detects non-specific axes and omits them from the prefix, which causes the prefix scan to match across all values along that axis. This is how a query naturally widens from a point (all axes specified) to a line, plane, or volume — by shortening the prefix.
-
-Non-specific axes allow a record to:
-
-* Participate in multiple queries
-* Be retrieved even when queries are underspecified
-* Occupy a line, plane, or volume
-
-Without non-specific axes, geometric retrieval collapses.
-
----
-
-## Determinism and Exact Matching
-
-NAM does **not** compute similarity.
-
-It performs **deterministic, structured storage lookups**.
-
-That means:
-
-* Every query corresponds to a concrete region of address space
-* Every region maps to a deterministic set of storage operations
-* The same query against the same data always returns the same results
-
-Geometry is resolved **before** storage access.
-
-This is why determinism is possible.
-
----
-
-## Covering Index: How Geometry Becomes Storage
-
-NAM encodes geometric relationships directly into storage keys using a **covering index** based on cyclic permutations.
-
-For each base address with N coordinate axes, NAM stores N rotations of the axis ordering:
-
-* Rotation 0: `(partition, x, y, z)`
-* Rotation 1: `(partition, y, z, x)`
-* Rotation 2: `(partition, z, x, y)`
-
-This creates a **covering index** — every possible single-axis query can be answered by scanning the rotation where that axis appears first. Queries specifying multiple axes use the rotation where those axes form a contiguous prefix.
-
-The covering index replaces the older approach of storing explicit wildcard copies. Instead of storing 2^N copies per base address with every possible combination of wildcarded axes, NAM stores only N copies — one per rotation. For 3 axes, this is 3 rotations instead of 8 wildcard combinations.
-
-### Why Rotations Work
-
-Consider a query that specifies only the y-axis value. In rotation 1, the y-axis comes first in the key. A prefix scan on `(partition, y_value)` efficiently finds all matching records regardless of their x and z values.
-
-This is geometrically equivalent to querying a **plane** — all points along a plane where y is fixed — but implemented as a simple prefix scan rather than 2^(N-1) individual lookups.
+The type segment is part of the partition key, so a scan always targets one class. The planner decides which classes to scan: first the classes the graph index records for each query entity, then ontology tiers grouped by BFO branch, with a probe of the unclassified class (BFO:0000001) as a safety net. That ordering is described in [Query Model](QUERY_MODEL.md).
 
 ---
 
 ## Storage as a Geometric Substrate
 
-From NAM’s perspective, storage must support two operations:
+The storage layer needs only two kinds of operation:
 
-1. **Key-based writes** — store a record at a specific address key
-2. **Prefix scans** — retrieve all records whose keys share a common prefix
+1. Blind appends (an entry or a record pointer under a key)
+2. Batched key reads and prefix scans
 
-The storage layer does **not**:
-
-* Understand geometry
-* Interpret axes
-* Perform joins or ranking
-
-Geometry is encoded *into the keys themselves*, and the rotation scheme ensures any axis combination can be queried via a single prefix scan.
-
----
-
-## Why This Works with KV Stores
-
-Key-value systems with ordered storage (LSM trees, B-trees) naturally support prefix scans. NAM exploits this by:
-
-* Encoding geometric coordinates into key prefixes
-* Using cyclic rotations to ensure any query axis can appear first
-* Routing all rotations of the same address to the same storage partition
-
-The result: geometric retrieval without specialized index structures, secondary indexes, or query planners in the storage layer. The "index" is the data itself, arranged so that any geometric query maps to a contiguous key range.
-
-There is no guessing at runtime.
-
----
-
-## Query Widening (Not Guessing)
-
-When a query does not match at maximum specificity:
-
-* NAM does not “relax similarity thresholds”
-* NAM does not “search harder”
-
-Instead, it **widens geometry** by scanning progressively broader regions:
-
-```
-point → line → plane → volume
-```
-
-Each widening step corresponds to a prefix scan on a shorter prefix — specifying fewer axes means scanning a broader region of the covering index. The rotation scheme ensures that any subset of axes can be efficiently queried regardless of which axes are specified.
-
-Each step is:
-
-* Explicit
-* Ordered
-* Deterministic
-
-This is how NAM preserves control without losing recall.
+It does not understand geometry, interpret axes, join, or rank. Geometry is encoded into what is stored, and the storage layout makes every combination of axes an exact or prefix match.
 
 ---
 
 ## Why Ingest and Query Must Align
 
-For geometric retrieval to work:
-
-* Ingest must store addresses using the covering index (all N rotations per base address)
-* Query must use the same coordinate encoding and rotation scheme
-* The same axes, the same codebook, the same encoder heads
-
-If the covering index at ingest uses different rotations or coordinate encoding than the query planner expects, prefix scans will miss records.
-
-This alignment is **a core architectural invariant**.
+For the address path to work, ingest and query must use the same codec, the same storage layout, the same entity normalization, the same ontology class set, and the same tenant and partition scope. If any of these differ, scans land in the wrong partition or match nothing. That failure is visible: the `access_paths` trace reports the address path's contribution as zero.
 
 ---
 
-## What This Enables
+## What the Address Path Is and Is Not
 
-Geometric retrieval allows NAM to:
+It is:
 
-* Handle vague language safely
-* Support partial facts
-* Remain deterministic
-* Avoid similarity math
-* Scale with storage, not vectors
+* Deterministic and reproducible
+* Explainable — every result came from a named scan of a named region
+* Tolerant of partial facts and vague queries, through empty axes and widening
 
-Most importantly:
+It is not:
 
-> NAM retrieves meaning without collapsing it.
+* A similarity ranking over the corpus
+* Able to find meaning that ingest never wrote as an address
+
+The second limit is why NAM also runs a vector path. Where the address path cannot reach a relevant record, the vector path may; fusion keeps the address path's ordering first and records which path found each row.
 
 ---
 
 ## Summary
 
-* NAM stores meaning as geometry
-* Geometry is composed of points, lines, planes, and volumes
-* A covering index of cyclic rotations enables efficient geometric queries on ordered KV stores
-* Prefix scans replace explicit wildcard enumeration — N rotations instead of 2^N copies
-* Storage is a passive geometric substrate that supports key writes and prefix scans
-* Retrieval is navigation, not ranking
+* The address path stores meaning as coordinates and retrieves by region.
+* Regions are points, lines, planes and cubes, matched by how many axes must agree.
+* The storage layout makes any set of specified axes an exact or prefix match; coarse codes plus neighbours give each probe a neighbourhood; remaining axes are post-filtered.
+* Widening runs point → line → plane → cube until the limit is met.
+* Storage only appends, reads keys and scans prefixes.
 
-If this document makes sense, the rest of NAM will too.
-
-→ See also: [Addressing Model](ADDRESSING_MODEL.md) | [Query Model](QUERY_MODEL.md) | [Ingestion Model](INGESTION_MODEL.md) | [Terminology](../PHILOSOPHY/TERMINOLOGY.md)
+→ See also: [Addressing Model](ADDRESSING_MODEL.md) | [Query Model](QUERY_MODEL.md) | [Ingestion Model](INGESTION_MODEL.md) | [Vector Search](VECTOR_SEARCH.md) | [Graph Index](GRAPH_INDEX.md) | [Terminology](../PHILOSOPHY/TERMINOLOGY.md)

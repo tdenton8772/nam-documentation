@@ -1,135 +1,94 @@
 # What NAM Cannot Do
 
 NAM is deliberately constrained by design.
-Those constraints are what make it deterministic, inspectable, and deployable.
+Those constraints are what keep it inspectable, rebuildable and deployable.
 
-This document describes **systemic non-capabilities** — not temporary limitations, missing features, or future roadmap items.
+This document describes **systemic non-capabilities** — not temporary limitations, missing features, or roadmap items (see [Current Limitations](CURRENT_LIMITATIONS.md) for those).
 
 If a problem fundamentally requires any of the following, **NAM is not the right tool**.
 
 ---
 
-## 1. Probabilistic or Best-Guess Search
+## 1. Opaque Relevance
 
-NAM does not perform:
+NAM does contain similarity search: the vector path returns the top-K records above a cosine floor. What NAM does not do is hide *how* a result was found.
 
-* similarity ranking
-* fuzzy matching
-* “top-K” retrieval based on embeddings
-* relevance scoring without semantic justification
+NAM will not:
 
-There is no concept of:
+* blend paths into a single unexplained relevance score
+* return a result without saying which access path produced it
+* present a vector match as if it were a structural match
 
-* “closest match”
-* “most similar”
-* “probably relevant”
-
-If a use case depends on:
-
-* approximate answers
-* recall-first discovery
-* “something like this” behavior
-
-NAM is not a fit.
+Every fused row lists its `sources`, vector rows carry their cosine, and every response carries an `access_paths` trace. If a use case needs a black-box relevance score with no provenance, NAM is not a fit.
 
 ---
 
-## 2. Semantic Guessing or Intent Inference
+## 2. Exhaustive Similarity Search
 
-NAM does not guess user intent.
+The vector path is approximate. NAM does not guarantee:
+
+* the globally nearest K records
+* every record above a similarity threshold
+* results below the deployment's cosine floor, which a request cannot lower
+
+If a use case needs exact nearest-neighbour search over a whole corpus, use a system built for that.
+
+---
+
+## 3. Semantic Guessing or Intent Invention
+
+NAM does not invent user intent.
 
 It will not:
 
-* infer meaning beyond what the query activates
-* hallucinate affordances
-* reinterpret vague input to “be helpful”
+* infer meaning beyond what the query's words and resolved entities support
+* invent entities that are not in the entity store
+* reinterpret vague input to "be helpful"
 
-Ambiguous queries remain ambiguous.
-
-This is intentional.
-
-If a system must:
-
-* always return *something*
-* reinterpret unclear questions
-* smooth over underspecified intent
-
-NAM will feel rigid — because it is.
+Ambiguous queries remain ambiguous. NAM widens explicitly, and the trace shows it.
 
 ---
 
-## 3. Natural Language Generation or Creative Reasoning
+## 4. Natural Language Generation or Reasoning
 
 NAM does not:
 
 * generate prose
 * summarize content
 * rewrite text
-* create explanations in natural language
+* produce explanations in natural language
 
-NAM retrieves **knowledge**, not narratives.
-
-It is designed to be paired with:
-
-* downstream systems
-* LLMs
-* application logic
-
-NAM provides **what is known** — not how to phrase it.
+NAM retrieves **records**, not narratives. It is designed to be paired with downstream systems, LLMs and application logic.
 
 ---
 
-## 4. Learning New Reasoning Strategies at Runtime
+## 5. Learning New Rules at Runtime
 
-NAM does not evolve its reasoning rules dynamically.
+NAM does not change its navigation rules in response to queries.
 
 It will not:
 
-* invent new affordances
-* create new ontologies on the fly
-* adapt its addressing strategy in response to queries
+* create new ontology classes on the fly
+* retrain encoder heads, the address codec or the embedding model at runtime
+* adapt its addressing strategy based on query feedback
 
-While NAM accumulates more knowledge over time, the *rules of navigation* remain fixed.
-
-If a system requires:
-
-* adaptive inference strategies
-* reinforcement learning loops
-* self-modifying reasoning
-
-NAM is not designed for that role.
+NAM accumulates *knowledge* during ingest (new addresses, new entities and surface forms). The rules that place and find knowledge stay fixed for a given set of artifacts.
 
 ---
 
-## 5. Global Recall Guarantees
+## 6. Global Recall Guarantees
 
 NAM does not guarantee:
 
 * full recall
 * exhaustive coverage
-* “all relevant results”
+* "all relevant results"
 
-Retrieval is constrained by:
-
-* geometry
-* addressing choices
-* probe shape
-
-If a record lies outside the probed region, it will not be returned — even if it is conceptually related.
-
-This is a feature, not a bug.
-
-If a use case demands:
-
-* “never miss anything”
-* full-corpus scans by default
-* recall-first guarantees
-
-NAM is not appropriate.
+Each path is bounded: the address path by its planned probes and budgets, the vector path by the bounded part of the index each query reads and by its cosine floor, the graph path by hop depth and result caps. A record outside every path's bounds is not returned, even if it is conceptually related. Bounded retrieval is a design choice: it keeps cost predictable and behaviour explainable.
 
 ---
 
-## 6. Implicit Joins or Schema-Free Analytics
+## 7. Joins, Aggregations and Analytics
 
 NAM does not perform:
 
@@ -138,17 +97,11 @@ NAM does not perform:
 * statistical analysis
 * ad hoc schema inference
 
-It does not behave like:
-
-* a data warehouse
-* an analytics engine
-* a graph query language
-
-NAM retrieves **records**, not computed results.
+It does not behave like a data warehouse, an analytics engine, or a graph query language. The graph path walks fixed relationship types; it does not evaluate arbitrary graph queries.
 
 ---
 
-## 7. Being a System of Record
+## 8. Being a System of Record
 
 NAM is not a source of truth.
 
@@ -158,34 +111,13 @@ It should not be used as:
 * a transactional system
 * a canonical record keeper
 
-NAM assumes:
-
-* upstream systems own correctness
-* data can be re-ingested
-* addresses can be rebuilt
-
-It is a memory layer, not a ledger.
+Every NAM index — addresses, vectors, graph — is derived from source records and can be rebuilt from them. NAM is a memory layer, not a ledger.
 
 ---
 
-## 8. Universal Applicability
+## 9. Universal Applicability
 
-NAM is not intended to solve:
-
-* every search problem
-* every knowledge problem
-* every AI problem
-
-It is intentionally opinionated.
-
-If a problem benefits from:
-
-* ambiguity
-* heuristics
-* probabilistic inference
-* opaque decision-making
-
-NAM will feel restrictive — and that is by design.
+NAM is opinionated. It is not intended to solve every search, knowledge or AI problem. If a problem is best served by heuristics without provenance, probabilistic inference, or opaque decision-making, NAM will feel restrictive — and that is by design.
 
 ---
 
@@ -193,17 +125,14 @@ NAM will feel restrictive — and that is by design.
 
 NAM does **not** try to be:
 
-* a search engine
+* an opaque relevance engine
 * a reasoning engine
-* a learning system
+* a runtime learning system
 * a generative model
-* a universal database
+* a system of record
 
 NAM exists to do one thing well:
 
-> **Provide deterministic, inspectable access to semantic knowledge through geometry.**
-
-If a problem fits that shape, NAM excels.
-If it doesn't, NAM will resist — and should.
+> **Provide inspectable, attributable access to semantic knowledge — by structure first, by similarity where it helps, and always saying which.**
 
 → See also: [What NAM Can Do](WHAT_NAM_CAN_DO.md) | [Design Principles](../PHILOSOPHY/DESIGN_PRINCIPLES.md) | [Where NAM Fits](../OVERVIEW/WHERE_NAM_FITS.md)

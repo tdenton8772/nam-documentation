@@ -2,212 +2,162 @@
 
 *How NAM stores and recovers state*
 
-This document describes how NAM's storage layer persists data, how it recovers from failures, and why the persistence model was designed this way.
+This document describes how NAM's storage layer persists data, how it recovers from failures, and why the persistence model is designed this way.
 
 ---
 
 ## Core Principle: Derived State Is Rebuildable
 
-NAM's primary storage — the address index — is entirely **derived** from source data.
+All of NAM's indexes are **derived** from source records:
 
-This means:
+* The address index is rebuilt by re-running the address pipeline over the source store
+* The vector index is rebuilt by re-embedding the source store
+* The graph index is rebuilt from the address index
 
-* If the address index is lost, it can be rebuilt by re-ingesting the source data
-* The source data is the system of record, never the address index
-* NAM never stores anything that cannot be reconstructed
+The source store is the system of record. NAM's indexes are never authoritative.
 
-This property is fundamental to NAM's trust model. There is no hidden state that, if lost, cannot be recovered.
+Two pieces of state are not derived from source records and are treated with more care: the **head stores** (the vocabulary ingest has learned, which make a rebuild faster and more consistent) and the **coordination data** (leases, checkpoints and user accounts).
 
 ---
 
-## Storage Architecture
+## The Data Service
 
-NAM uses a distributed key-value store as its persistence layer. Data is organized into five stores, each with a distinct purpose:
+NAM runs on its own distributed key-value store. It provides what NAM needs and nothing more:
 
-| Store | Bucket | Engine | Persistence |
-|-------|--------|--------|-------------|
-| Source store | `main` | Standard (per-vbucket CFs, DCP support) | Persistent, S3-backed |
-| Address store | `nam` | RocksDB raw (single CF, prefix bloom, no hash table) | Persistent, S3-backed |
-| Graph index | `graph` | RocksDB raw (single CF, prefix bloom, no hash table) | Persistent, S3-backed |
-| Coordination store | `metrics` | Standard (per-vbucket CFs, DCP support) | Persistent, S3-backed |
-| Session store | `session` | Standard (per-vbucket CFs, DCP support) | Persistent, acts as warm cache |
+* Keyed reads, writes and appends
+* Ordered prefix scans
+* A per-partition, resumable change stream
+* Partitioning into a fixed number of vbuckets per bucket, spread across data nodes, with replicas
 
-The address store (`nam`) and graph index (`graph`) use a purpose-built RocksDB storage engine that bypasses the hash table entirely. Writes go directly to RocksDB via blind `Merge()` operations, reads use native prefix bloom filters, and the single column family eliminates compaction storms that occurred with per-vbucket CFs at scale. This engine is optimized for NAM's workload: high-volume append-only writes with prefix-scan reads.
+It runs as a multi-node tier. The reference deployment uses three data nodes with one replica of every vbucket.
 
-### Source store
+---
 
-Holds the original records that enter NAM through CDC. These are opaque payloads — NAM reads them during ingestion but does not modify them. The source store is the system of record.
+## Buckets
 
-### Address store
+| Bucket | Purpose | Partitions | Engine |
+|---|---|---|---|
+| `main` | Source records | 1024 | RocksDB-Cloud: one column family per vbucket |
+| `session` | Head stores: entity, attribute, affordance and context vocabularies | 64 | RocksDB-Cloud |
+| `metrics` | Leases, change-stream checkpoints, pipeline counters, user accounts | 64 | RocksDB-Cloud |
+| `nam` | Semantic addresses | 64 | Raw RocksDB |
+| `graph` | Graph index records | 64 | Raw RocksDB |
+| `vector` | Vector index records | 64 | Raw RocksDB |
 
-Holds the semantic addresses constructed by the pipeline. Each address is a key-value pair:
+### Two storage engines
 
-* **Key**: the deterministic semantic coordinate (partition key + axes)
-* **Value**: a pointer back to the source record, plus a timestamp
+**RocksDB-Cloud store** (`main`, `session`, `metrics`). Each vbucket has its own column family in a shared database. An in-memory hash table holds resident items, and a by-sequence index supports a full change stream. This engine suits document-shaped data that is read by key and streamed.
 
-The address store is the core of NAM's retrieval capability. It is fully rebuildable from the source store.
+**Raw RocksDB store** (`nam`, `graph`, `vector`). All vbuckets share one data column family; keys carry a short vbucket prefix. There is no in-memory hash table: writes go straight to RocksDB, and reads use prefix bloom filters. A separate by-sequence index lets the change stream deliver each vbucket in order, which is what the graph builder consumes. This engine suits NAM's index workload: very high write volume, key-only or small values, and prefix-scan reads.
 
-### Graph index
+Address data, and graph data on the reference deployment, are written as blind appends (RocksDB merges) rather than read-modify-write. Readers de-duplicate repeats, and compaction of the address index keeps one copy of each.
 
-Holds the materialized graph index — individual records per (edge_type, codes, address) that enable cross-dimensional graph traversal via prefix scan. The graph index is fully derived from the address store and is rebuilt automatically by the addressing pipeline.
+---
 
-### Coordination store
+## What Each Bucket Holds
 
-Holds lease documents, DCP checkpoints, and pipeline metrics. This data is recoverable — if lost, leases expire and are re-established, checkpoints restart from the beginning, and counters reset. No semantic data is lost.
+### Source store (`main`)
 
-### Session store
+The original records. Opaque payloads that NAM reads during ingestion and fetches at query time to return results. It is the system of record.
 
-Holds the entity resolution cache, attribute vocabulary, affordance mappings, and context classifications. This data accumulates over time as the pipeline processes records. It acts as a **warm cache** — losing it means entity resolution must rediscover entities from scratch, but the system remains correct.
+### Address store (`nam`)
 
-The session store is **not flushed during pipeline resets**. This preserves the accumulated entity knowledge across re-ingestion cycles.
+On the reference deployment each partition's (tenant, partition, type, entity) addresses are stored together; in the rotations layout the keys are the rotated addresses themselves. Either way, an address's record pointers are a list of lines, each naming a source record pointer and a timestamp. Readers de-duplicate lines by record pointer, so a redelivered write costs space, not correctness.
+
+### Graph index (`graph`)
+
+Record-entity edges in both directions and the ontology classes each entity is stored under (in the rotations layout, key-only records that also include one per non-empty axis combination of each address). Built from the address store.
+
+→ See: [Graph Index](GRAPH_INDEX.md)
+
+### Vector index (`vector`)
+
+Each record's embedding, filed by region, with a pointer back to its source record. Written by vector ingest from the source store's change stream.
+
+→ See: [Vector Search](VECTOR_SEARCH.md)
+
+### Session store (`session`)
+
+The head stores: entity surface forms and identifiers, attribute and affordance categories, context values. They accumulate as ingest runs and act as a **warm cache** across reloads. Losing them does not make the system incorrect, but entity resolution has to rediscover names from scratch, and identifiers learned late are not retroactively applied to addresses already written.
+
+A node-level cache keeps memory-mapped copies of these stores, fed by the `session` change stream.
+
+### Coordination store (`metrics`)
+
+Partition leases, change-stream checkpoints, pipeline counters and user accounts. Leases rebuild themselves; checkpoints and counters can be reset deliberately; **user accounts cannot be re-derived**, so resets preserve this bucket unless a lease reset is explicitly intended.
 
 ---
 
 ## Object Storage Backing
 
-All stores use **object storage (S3-compatible)** as their durable backing layer.
+Buckets are mirrored to **S3-compatible object storage**. The reference deployment runs an in-cluster object store on its own node. The coordination bucket can be configured to stay local, since its contents are either regenerated or small.
 
-The storage engine writes data locally first, then asynchronously replicates to object storage. On restart, the engine can recover from object storage without local state.
-
-### On-Demand Caching
-
-Rather than downloading all data on startup, the storage engine uses **on-demand caching**:
-
-* On startup, only the metadata manifest is downloaded (small, fast)
-* Individual data files are fetched from object storage only when first accessed
-* Fetched files are cached locally for subsequent reads
-* This enables startup times measured in seconds, not minutes
-
-### Why on-demand?
-
-* **Fast cold start** — new pods become operational quickly
-* **Efficient resource use** — only accessed data consumes local storage
-* **Graceful scaling** — new replicas do not need to download the entire dataset
-* **Cost efficiency** — infrequently accessed data stays in object storage
-
----
-
-## Bloom Filter Strategy
-
-The storage engine uses a two-tier bloom filter approach:
-
-1. **Per-file bloom filters** — each data file contains its own bloom filter, checked during reads to avoid unnecessary I/O
-2. **Engine-level filter bypass** — because data may exist in object storage but not locally, the engine-level bloom filter is intentionally disabled for S3-backed stores
-
-This means:
-
-* Every key lookup that misses the local cache triggers a background fetch from object storage
-* The per-file bloom filters handle false-positive filtering efficiently
-* No key is incorrectly reported as "not found" simply because it hasn't been cached locally yet
-
----
-
-## Recovery Model
-
-NAM's recovery model depends on what was lost:
-
-### Pod restart (no data loss)
-
-* Leases expire and are re-established
-* DCP checkpoints resume from last saved position
-* Pipeline continues from where it left off
-* On-demand caching means no lengthy warmup
-
-### Local storage loss (pod rescheduled to new node)
-
-* Metadata manifest is downloaded from object storage
-* Data files are fetched on demand as requests arrive
-* Session store rebuilds from object storage
-* Pipeline resumes after lease re-establishment
-
-### Complete cluster loss
-
-* All state is recoverable from object storage
-* Source data, addresses, and session caches are restored
-* Coordination state (leases, checkpoints) starts fresh
-* Full re-ingestion may be required if checkpoints were not persisted
-
-### Source data loss
-
-* If the source store is lost, addresses cannot be rebuilt
-* Object storage serves as the backup for source data
-* This is the only truly unrecoverable failure mode
+The storage engine writes locally first and ships immutable data files (SSTs) and manifests to object storage. On open, a store downloads its manifest and fetches data files **on demand** as they are first read, then caches them locally. A data node therefore becomes operational without first downloading its whole dataset.
 
 ---
 
 ## Storage Maintenance
 
-### SST Accumulation
+### Compaction
 
-The storage engine uses a Log-Structured Merge Tree (LSM). Writes go to an in-memory buffer (memtable), which is periodically flushed to immutable sorted data files (SSTs) on local disk and replicated to object storage.
+RocksDB merges small files into larger ones in the background. For the buckets configured for it, the heavy part of that work is **offloaded**: dedicated remote compaction workers, running away from the data nodes, pick up compaction jobs, read their inputs from object storage, compact them and return the result for the data node to install. Jobs are claimed exclusively, so two workers never run the same job, and a failed remote job aborts that compaction without stopping writes. A controller reads each data node's compaction backlog, requests compaction of what is due, and sizes the worker pool to the backlog; a backstop starts a worker if none is running when compactions are waiting.
 
-Over time, this creates a large number of small SSTs in object storage. Because the data service uses on-demand caching, local compaction only merges SSTs that have been fetched locally — SSTs from prior pod lifecycles remain unmerged on S3. This is a natural consequence of the on-demand model, but without maintenance the file count grows indefinitely.
+### Orphan file collection
 
-### Online S3 Compaction
+Compaction leaves superseded files behind in object storage, and RocksDB-Cloud does not reclaim them by itself. A garbage-collection pass reconciles each bucket's objects against its live manifest and deletes the difference. An object is deleted only if it was already dead in a candidate list recorded at least an hour earlier, so a file that a live writer has just produced is never taken.
 
-NAM includes an automated S3 compaction task that merges accumulated SSTs without taking the data service offline:
+### Bucket flush
 
-1. **Flush** — the supervisor sends a flush command to the live data service, pushing any in-memory data to SSTs on S3. A timestamp is recorded marking the boundary between "old" and "new" data.
+A flush drops each data column family and creates an empty one under the same name. There is no range delete and no compaction, so a flush costs the same whatever the data size. The dropped files are freed later by a reclaim task, once no reader or writer still holds them. Flushing the data buckets needs no restart of any consumer: change streams carry on.
 
-2. **Compact** — a dedicated Kubernetes Job opens the database directly from S3 using eager-mirror mode (downloading all SSTs), runs a full merge compaction on every column family, and uploads the resulting compacted SSTs back to S3.
-
-3. **Orphan cleanup** — after compaction, the Job identifies SST files on S3 that are no longer referenced by the database manifest. Only files whose S3 `LastModified` timestamp is older than the pre-flush boundary are deleted. This age-based filter ensures that any SSTs written by the live data service during compaction are preserved.
-
-4. **Verify** — the supervisor confirms the data service remains healthy and item counts are unchanged.
-
-The data service stays live and serving traffic throughout this process. SSTs are immutable — new writes go to new memtables and new SSTs, never modifying existing files. This immutability property makes online compaction safe.
-
-S3 compaction is a manual task, triggered via the supervisor API (`POST /v1/admin/tasks/s3_compaction`) or the frontend dashboard. It is intentionally not auto-scheduled due to the resource cost of downloading and reprocessing all SSTs.
+The `session` bucket is normally not flushed, so the head stores stay warm across reloads.
 
 ---
 
-## Partition Model
+## Recovery Model
 
-Data is distributed across partitions (vbuckets) using consistent hashing:
+### Ingest or query pod restart
 
-* The source store uses a high partition count for even distribution
-* The address store uses a lower partition count (addresses are more uniformly distributed)
-* The coordination store uses a small partition count (low volume, high churn)
-* The session store uses a moderate partition count
+* Leases expire and are reclaimed; each change-stream consumer resumes from its checkpoint.
+* Records already handed to the durable on-disk queue are on the pod's persistent volume and are processed after restart.
+* Node-level head-store caches rebuild from the `session` change stream.
 
-Partition counts are fixed at store creation and do not change. This ensures that:
+### Data node restart
 
-* Partition keys are stable across restarts
-* Data distribution is predictable
-* Recovery does not require partition remapping
+* Stores reopen from local disk; anything not yet local is fetched from object storage on demand.
+* Replicas on other nodes hold copies of the node's vbuckets and can be promoted by failover if the node does not return.
 
----
+### Loss of a data node's local disk
 
-## What Is Not Persisted
+* Stores reopen from object storage using the last uploaded manifest.
+* Data written since the last upload may be lost from that node; replicas on other nodes and re-ingestion cover it.
 
-The following are intentionally ephemeral:
+### Loss of the whole cluster
 
-* **Pipeline message bus state** — messages are consumed and discarded
-* **In-flight processing state** — if a pod dies mid-processing, the record will be re-streamed via DCP
-* **Node-level entity caches** — rebuilt from the session store on startup
-* **Lease documents** — re-established on startup via CAS claims
+* Source records, head stores and indexes are recoverable from object storage up to the last upload.
+* Coordination state starts fresh; derived indexes can be rebuilt by re-ingesting.
 
-None of these require persistence because:
+### Loss of the source store
 
-* The CDC stream is the source of truth for "what needs processing"
-* The session store is the source of truth for entity state
-* Leases are coordination primitives, not data
+* Indexes cannot be rebuilt without source records. Object storage is the backup for the source store, which is why source records are mirrored there.
 
 ---
 
 ## Consistency Model
 
-NAM does not require strong consistency for its address store. The consistency model is:
+* **Eventual consistency for indexes.** An address becomes queryable shortly after its record is written; the graph index lags the address index; the vector index follows the source store on its own schedule.
+* **At-least-once delivery.** Change streams and the durable queues can redeliver. Repeated address and graph lines are de-duplicated on read (and address lines also at compaction); the vector index de-duplicates by record when it scores.
+* **Deterministic keys.** The same record produces the same address keys and lines, so re-ingesting it repeats lines rather than adding new ones.
 
-* **Eventual consistency for addresses** — an address may take a short time to become queryable after ingest
-* **Strong consistency for entity resolution** — entity IDs are assigned via CAS operations to prevent duplicates
-* **At-least-once delivery** — DCP may re-deliver records after a failure; duplicate addresses are idempotent (same key = same value)
+This is sufficient because NAM is an index: what matters is that, once writes have landed, the same query over the same data returns the same results.
 
-This model is sufficient because:
+---
 
-* Address writes are idempotent (writing the same address twice has no effect)
-* Query results are deterministic once addresses are visible
-* Entity resolution requires consistency only at the point of ID assignment
+## What Is Not Persisted
+
+* **Messages between pipeline stages**, where a deployment runs the head stages on the lightweight bus instead of durable streams (the reference deployment uses durable streams): a record lost there is evicted after a timeout and counted as an error.
+* **In-process caches**: rebuilt on demand.
+* **Node-level head-store caches**: rebuilt from the `session` change stream.
 
 ---
 
@@ -215,13 +165,13 @@ This model is sufficient because:
 
 NAM's persistence model is:
 
-* **Derived** — all address state is rebuildable from source data
-* **S3-backed** — durable storage without local disk dependencies
-* **On-demand** — fast startup, efficient resource use
-* **Partitioned** — consistent distribution across fixed partition counts
-* **Eventually consistent** — sufficient for deterministic retrieval after convergence
-* **Recoverable** — from pod restart to full cluster loss, recovery paths are defined
+* **Derived**: every index is rebuildable from the source store
+* **Purpose-built**: a document store for source and state, a raw prefix-scan store for indexes
+* **Object-storage backed**: durable files, fetched on demand
+* **Maintained online**: offloaded compaction, orphan collection, constant-cost flush
+* **Replicated**: partitions spread across data nodes with replicas
+* **Eventually consistent**: deterministic once writes land
 
-The persistence layer is invisible to the semantic pipeline. Encoder heads, the address builder, and the query planner do not know or care how data is stored — only that it is addressable.
+The semantic pipeline does not depend on how data is stored, only that it is addressable and scannable.
 
-> See also: [High-Level Systems](HIGH_LEVEL_SYSTEMS.md) | [Pipeline Architecture](PIPELINE_ARCHITECTURE.md) | [Addressing Model](ADDRESSING_MODEL.md)
+> See also: [High-Level Systems](HIGH_LEVEL_SYSTEMS.md) | [Pipeline Architecture](PIPELINE_ARCHITECTURE.md) | [Addressing Model](ADDRESSING_MODEL.md) | [Deployment Architecture](DEPLOYMENT_ARCHITECTURE.md)

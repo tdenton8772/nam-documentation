@@ -1,6 +1,6 @@
 nam-documentation/
 ├── README.md                     # Primary entry point (everyone reads this)
-├── LICENSE.md                    # Documentation license (e.g. CC BY-NC 4.0)
+├── LICENSE.md                    # Documentation license
 
 ├── OVERVIEW/
 │   ├── WHAT_IS_NAM.md            # Plain-language explanation
@@ -10,35 +10,37 @@ nam-documentation/
 ├── PHILOSOPHY/
 │   ├── DESIGN_PRINCIPLES.md      # Invariants, non-goals, tradeoffs
 │   ├── PRFAQ_EXCERPTS.md         # Curated, non-sensitive excerpts
-│   └── TERMINOLOGY.md            # Canonical definitions (address, affordance, etc.)
+│   └── TERMINOLOGY.md            # Canonical definitions (address, access path, etc.)
 
 ├── ARCHITECTURE/
-│   ├── HIGH_LEVEL_SYSTEMS.md     # Conceptual system (11 components)
-│   ├── GEOMETRIC_RETRIEVAL.md    # Cubes, planes, lines, points
-│   ├── ADDRESSING_MODEL.md       # Determinism, axes, non-specific coordinates, hash-based entity IDs
-│   ├── INGESTION_MODEL.md        # Entity-anchored bundling, encoder roles, CDC entry
-│   ├── QUERY_MODEL.md            # How questions become probes (progressive fan-out)
-│   ├── PIPELINE_ARCHITECTURE.md  # Staged pipeline, per-pod architecture, lease coordination
-│   ├── DATA_PERSISTENCE.md       # S3-backed storage, on-demand caching, recovery model
-│   ├── DEPLOYMENT_ARCHITECTURE.md # Service topology, network layout, operational lifecycle
-│   └── API_REFERENCE.md          # Public API (auth, query, admin, KV proxy)
+│   ├── HIGH_LEVEL_SYSTEMS.md     # Conceptual system: converged index, components
+│   ├── GEOMETRIC_RETRIEVAL.md    # Points, lines, planes, cubes; covering index
+│   ├── ADDRESSING_MODEL.md       # Address shape, BFO/CCO type, entity hash, LCA axes, storage layouts
+│   ├── INGESTION_MODEL.md        # Change-stream entry, heads, entity-anchored bundling
+│   ├── QUERY_MODEL.md            # Orchestrator, routing, address path planning, fusion
+│   ├── VECTOR_SEARCH.md          # Approximate vector path, cosine floor, CPU/GPU embedding
+│   ├── GRAPH_INDEX.md            # Record-entity graph, index builder, graph walks
+│   ├── PIPELINE_ARCHITECTURE.md  # Per-pod pipeline, write-ahead log, leases, backpressure
+│   ├── DATA_PERSISTENCE.md       # Data service, buckets, object storage, recovery
+│   ├── DEPLOYMENT_ARCHITECTURE.md # Service topology, Helm, supervisor and task framework
+│   └── API_REFERENCE.md          # Public API (auth, query, vector, graph, admin, KV proxy)
 
 ├── CAPABILITIES/
 │   ├── WHAT_NAM_CAN_DO.md        # Supported problem classes
-│   ├── WHAT_NAM_CANNOT_DO.md     # Explicit non-goals (very important)
-│   └── CURRENT_LIMITATIONS.md   # Honest POC constraints
+│   ├── WHAT_NAM_CANNOT_DO.md     # Explicit non-goals
+│   └── CURRENT_LIMITATIONS.md    # Honest current constraints
 
 ├── ROADMAP/
-│   ├── CURRENT_STATE.md          # Where the project is *today*
-│   ├── NEAR_TERM.md              # Next 3–6 months
-│   └── LONG_TERM.md              # Vision without commitments
+│   ├── CURRENT_STATE.md          # What is shipped today
+│   ├── NEAR_TERM.md              # Open work, no dated commitments
+│   └── LONG_TERM.md              # Direction without commitments
 
 ├── GOVERNANCE/
 │   ├── LICENSING_MODEL.md        # How source-available licensing works
 │   ├── CONTRIBUTIONS.md          # How collaborators engage (non-OSS)
-│   └── SECURITY_AND_TRUST.md     # Auth, isolation, encryption, audit, trust model
+│   └── SECURITY_AND_TRUST.md     # Auth, proxies, isolation, encryption, audit, trust model
 
 └── APPENDIX/
     ├── FAQ.md                    # High-signal answers only
-    ├── GLOSSARY.md               # Expanded definitions
-    └── REFERENCES.md             # Papers, prior art, inspirations
+    ├── GLOSSARY.md               # Quick-reference definitions
+    └── REFERENCES.md             # Prior art, standards, inspirations

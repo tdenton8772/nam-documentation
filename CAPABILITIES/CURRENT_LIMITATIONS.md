@@ -128,7 +128,7 @@ Deployments that need hard isolation today should run separate instances.
 
 Deployment is packaged (a single Helm chart), lifecycle is automated, and the query API is authenticated. Current operational constraints include:
 
-* **Alerting is not shipped.** Services expose health endpoints and the query service exposes Prometheus-format metrics, but no alerting rules ship with the chart
+* **Alert notifications are not shipped.** The shipped alert rules are evaluated and firing alerts show in the dashboard, but nothing routes them to email, chat or a pager; a deployment that needs notifications adds its own routing
 * **Network policies are opt-in.** The chart contains ingress policies for the data service, supervisor, ingest and query tiers, but they are disabled by default and must be reviewed per deployment before they are switched on
 * **Encryption at rest is opt-in** and depends on the storage provisioner. Key rotation is manual
 * **Cross-cluster replication** endpoints exist in the API, but replication is not configured in any current deployment

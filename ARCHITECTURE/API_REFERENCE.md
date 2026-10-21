@@ -12,8 +12,8 @@ All endpoints use JSON request and response bodies.
 
 NAM uses **JWT** bearer tokens.
 
-* Every endpoint except login, password reset by token, health and readiness checks, and the Prometheus metrics endpoint requires a valid token when authentication is enabled.
-* Tokens carry identity and a role claim (`user` or `admin`). Admin endpoints require `admin`; a non-admin token receives `403`, a missing or invalid token `401`.
+* Every endpoint except login, password reset by token, health and readiness checks, and the two metrics endpoints requires a valid token when authentication is enabled. `/metrics` is open; `/v1/metrics/federate` takes basic auth (below).
+* Tokens carry identity and a role claim (`user` or `admin`). Admin endpoints require `admin`; a non-admin token receives `403`, a missing or invalid token `401`. A third role, `metrics`, is for scraper accounts: they cannot log in or refresh, and read only `/v1/metrics/federate`.
 * Tokens are time-limited and can be refreshed before expiry.
 * Login attempts are rate-limited per client address, and queries per user.
 * Access is audit-logged.
@@ -258,6 +258,12 @@ GET /metrics
 
 Prometheus metrics. No authentication.
 
+```
+GET /v1/metrics/federate
+```
+
+Every series the bundled metrics store holds, in Prometheus text format: one scrape target for the whole deployment. Basic auth with a `metrics` or `admin` account; an admin token is accepted too. `401` without valid credentials, `403` for any other role, `429` after repeated failures from one address, `503` when the bundled metrics store is not enabled. Repeated `match[]` selectors narrow the result (default: every job).
+
 ---
 
 ## Administration
@@ -268,7 +274,7 @@ All endpoints below require an `admin` token.
 
 | Method | Path | Body / Notes |
 |---|---|---|
-| `POST` | `/v1/admin/users` | `{ "username", "password", "role" }` (role defaults to `user`) |
+| `POST` | `/v1/admin/users` | `{ "username", "password", "role" }` (`user`, `admin` or `metrics`; defaults to `user`) |
 | `GET` | `/v1/admin/users` | List users and roles |
 | `PUT` | `/v1/admin/users/{username}` | `{ "role" }` |
 | `DELETE` | `/v1/admin/users/{username}` | Remove a user |

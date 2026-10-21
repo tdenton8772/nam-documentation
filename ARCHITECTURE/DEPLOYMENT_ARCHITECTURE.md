@@ -91,7 +91,11 @@ A web dashboard: system health, pipelines, bucket browser and record editor, que
 
 ### Node Tunnel Healer (DaemonSet, optional)
 
-Repairs a known Kubernetes agent failure in which a node reports Ready while the control plane can no longer reach it. A supervisor task detects and labels the node; this per-node pod performs the restart, with guards against restart loops.
+Repairs a known Kubernetes agent failure in which a node reports Ready while the control plane can no longer reach it. A supervisor task detects and labels the node; this per-node pod performs the restart, with guards against restart loops. Off by default: only clusters on agent versions without the upstream fix need it.
+
+### Monitoring and Log Stacks (optional)
+
+A single-node metrics store with an alert evaluator, node and Kubernetes object exporters, a log store on object storage and a per-node log agent. Each part can be swapped for an existing Prometheus or Loki-protocol log receiver. See [Monitoring and Observability](#monitoring-and-observability).
 
 ### Compute Autoscaling (optional)
 
@@ -123,7 +127,8 @@ The supervisor discovers task plugins at startup. Each task has a schedule (inte
 | `ingest_scaler` | Scheduled | Decides the ingest tier's and graph builder's replica counts from the backlog (with autoscaling on) |
 | `node_cleanup` | Scheduled | Removes the leftover node records of compute servers that no longer exist (off unless enabled) |
 | `embed_pod_reaper` | Scheduled | Terminates GPU embedding pods whose owner has died |
-| `node_tunnel` | Scheduled | Detects nodes whose control-plane tunnel has silently failed |
+| `node_tunnel` | Scheduled | Detects nodes whose control-plane tunnel has silently failed (runs only with the healer) |
+| `node_disk` | Scheduled | Keeps each node's root disk in check: removes unused images once a disk passes a threshold, holds the system journal to a cap, and removes superseded runtime directories no process uses |
 
 **Destructive tasks run only when triggered by hand**: never on a schedule, never by automatic retry, and the configuration API cannot change that. Task state and history never contain credentials.
 
@@ -226,7 +231,7 @@ Values files set replica and worker counts, resources, node placement, storage c
 
 ### Maintenance
 
-Compaction, orphan-file collection, flush reclaim, ingest scaling, head-health reports, GPU reaping and node repair run as scheduled tasks. Destructive operations remain manual.
+Compaction, orphan-file collection, flush reclaim, ingest scaling, head-health reports, GPU reaping, node repair and node disk upkeep (unused images, the system journal, superseded runtime directories) run as scheduled tasks. Destructive operations remain manual.
 
 ### Recovery
 
@@ -237,12 +242,16 @@ See [Data Persistence: Recovery Model](DATA_PERSISTENCE.md#recovery-model).
 ## Monitoring and Observability
 
 * **Health and readiness endpoints** on every service, used by Kubernetes probes.
+* **Metrics from every component**: each pipeline stage, the ingest and index services, the data service, the KV proxy, the message bus, the query service and the supervisor's tasks, plus node and Kubernetes object metrics. Each serves Prometheus text format.
+* **A bundled metrics store and alert rules** (optional, `monitoring`): a single-node time-series store scrapes every component and keeps 30 days by default. An alert evaluator runs a shipped rule set: scrape targets down, pipeline stage errors and stalls, change streams not streaming, storage write stops and background errors, data-service memory and temporary failures, failing tasks and data-node operations, node readiness, memory and disk, crash-looping pods, unavailable replicas and nearly full volumes.
+* **Log collection** (optional, `logging`): a per-node agent ships every container's logs. The data service's own log files (each of its processes writes its own) are tailed beside them and labelled by source and level; verbose sources can be switched on at runtime. The bundled log store keeps them on object storage, 14 days by default.
+* **Bring your own stack**: a Prometheus of your own scrapes the same endpoints with the shipped scrape configuration, or reads everything from one target, `GET /v1/metrics/federate` on the query service, with a `metrics`-role account. The supervisor provisions an internal and an external one. Logs go to any receiver that accepts the Loki push protocol, VictoriaLogs included.
+* **Console views**: metric history charts, firing alerts and log search on the dashboard pages that own each area.
 * **Pipeline metrics** per pipeline: enqueued, dequeued and error totals, stage queue depths, head latency.
 * **Ontology quality**: the rate of records abstaining to `BFO:0000001`.
 * **Head health**: a scheduled collapse report per encoder head (empty rate, dominance of a few values, overlap with the type segment).
 * **Partition ownership** per ingest pod, and lease/stream alignment.
 * **Query traces**: every `/v1/query` response carries a per-path `access_paths` trace and reports degraded sources.
-* **Prometheus metrics** from the query service.
 * **System status, storage statistics and pipeline errors** through the query service admin API and the dashboard.
 
 ---

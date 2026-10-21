@@ -131,7 +131,10 @@ NAM serves one query endpoint over three access paths, all built from the same s
 
 * Health endpoints on every service and a readiness gate for the cluster
 * Pipeline counters (enqueued, dequeued, errors), per-stage latencies and queue depths, exposed through the query service's admin API and the dashboard
-* Prometheus-format metrics on the query service
+* Prometheus-format metrics from every component, a bundled metrics store and a shipped alert rule set
+* One scrape target for the whole deployment (`/v1/metrics/federate`, `metrics`-role accounts provisioned by the supervisor), for a Prometheus of your own
+* Log collection from every container and from the data service's own log files, to the bundled log store or any Loki-protocol receiver
+* Metric history, firing alerts and log search in the dashboard
 * Per-query `access_paths` traces, and an optional debug view of the address path's execution plan
 * Head-health reports with axis-health metrics (empty rate, dominance, overlap with the type segment), produced on a schedule and served by the admin API
 

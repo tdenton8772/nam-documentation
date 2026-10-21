@@ -55,9 +55,9 @@ Ingest is bound by compute-node CPU, and the ingest tier already sizes itself to
 
 ## 6. Observability
 
-* Alerting on pipeline errors, lease problems, index lag and storage write stops
+* Alert notification routing (email, chat, paging) for the shipped rule set
 * Structured logging with trace identifiers across service boundaries
-* Wider metrics export beyond the query service
+* Refined dashboard views for metric history, alerts and log search
 
 ---
 
